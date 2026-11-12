@@ -33,10 +33,12 @@ type Form struct {
 	// a click into one. See SetReadOnly.
 	readOnly bool
 
-	// sbDragging is true while the form's scrollbar thumb is dragged. Once armed it
-	// outranks even the focused row, so the form keeps following the thumb when the
-	// pointer drifts over a focused GridRow. Only a press on the bar's column arms it.
-	sbDragging bool
+	// gesture is what the held Button1 press began on: a row's index, formBar or
+	// formInert. Every event until the release goes there, wherever the pointer
+	// drifts: a thumb drag keeps following the pointer over a focused GridRow, and
+	// a selection drag in one row's grid or field never reaches the row it drifts
+	// onto as a fresh press.
+	gesture core.Gesture[int]
 
 	// applyConfirm is asked before this form's edits are applied for real; see
 	// SetApplyConfirm.
@@ -441,42 +443,41 @@ func (f *Form) HandleMouse(ev *tcell.EventMouse) bool {
 		}
 		return true
 	}
-	// The latch is dropped before anything else can claim the release, the ordering
-	// DataGrid, Editor and TreeView use. Below the focused row's dispatch it is
-	// unreachable whenever that row is a GridRow (DataGrid.HandleMouse returns true
-	// for any release in its rect), so a drag released over the grid would leave
-	// sbDragging armed and every later click read as a drag.
+	// A release (or plain motion) ends the gesture and goes to the rows whose
+	// latches it lets go: the focused row, scrolled off or not, and the row the
+	// gesture began on, which a press on an unfocusable row leaves unfocused. It
+	// never falls to the click-routing below: tcell delivers motion continuously,
+	// and band-matching it shifted focus to the row under the pointer, closing an
+	// open DropDown on the way to its list.
 	if ev.Buttons() == tcell.ButtonNone {
-		f.sbDragging = false
+		owner, held := f.gesture.Owner()
+		f.gesture.Release()
+		claimed := f.rowMouse(f.focus, ev)
+		if held && owner != f.focus && f.rowMouse(owner, ev) {
+			claimed = true
+		}
+		return claimed
 	}
-	// An armed scrollbar drag outranks even the focused row: the gesture began on
-	// the form's bar, so every event until release belongs to it wherever the
-	// pointer drifted. sbDragging is armed only by a press on the bar's column, so
-	// this can't steal a gesture that began inside a row.
-	if f.sbDragging && f.handleScrollbarDrag(ev, f.contentWidth()) {
+	// Ahead of everything else: the gesture began on the form's bar or one row, so
+	// every event until release belongs there wherever the pointer drifted.
+	if f.gesture.Route(ev, f.routeDrag) {
 		return true
 	}
 	// A press goes to the focused row first only while that row is on screen or has
 	// its overlay open. Scrolled out of view it keeps its last-drawn rect, and a
 	// DataGrid claims any press inside it: a grid scrolled off-screen would swallow
-	// clicks on whatever row now sits there. Releases and motion still go to it so
-	// its latch is let go.
-	if row := f.FocusedRow(); row != nil && (ev.Buttons() == tcell.ButtonNone || f.OverlayActive() || f.onScreen(f.focus)) {
-		if mh, ok := row.(core.MouseHandler); ok && mh.HandleMouse(ev) {
-			return true
-		}
-	}
-	if ev.Buttons() == tcell.ButtonNone {
-		// A plain hover/motion event must not fall to the click-routing below: tcell
-		// delivers these continuously, and band-matching one shifts focus to the row
-		// under the pointer, closing an open DropDown on the way to its list.
-		return false
-	}
-	w := f.contentWidth()
-	if f.handleScrollbarDrag(ev, w) {
+	// clicks on whatever row now sits there.
+	if f.FocusedRow() != nil && (f.OverlayActive() || f.onScreen(f.focus)) && f.rowMouse(f.focus, ev) {
+		f.gesture.Arm(ev, f.focus)
 		return true
 	}
 	mx, my := ev.Position()
+	w := f.contentWidth()
+	if total := f.totalHeight(w); ev.Buttons() == tcell.Button1 && core.OnScrollbar(mx, my, f.rect.Right()-1, f.rect.Y, f.rect.H, total) {
+		f.dragScrollbar(my, w)
+		f.gesture.Arm(ev, formBar)
+		return true
+	}
 	if mx < f.rect.X || mx >= f.rect.Right() {
 		return false
 	}
@@ -488,16 +489,19 @@ func (f *Form) HandleMouse(ev *tcell.EventMouse) bool {
 		if f.readOnly && !browsable(row) {
 			// Claimed, not routed: falling through would put the press wherever the sheet
 			// draws underneath.
+			f.gesture.Arm(ev, formInert)
 			return true
 		}
-		if mh, ok := row.(core.MouseHandler); ok && mh.HandleMouse(ev) {
+		if f.rowMouse(b.row, ev) {
 			if f.focusableAt(b.row) {
 				f.setFocus(b.row)
 			}
+			f.gesture.Arm(ev, b.row)
 			return true
 		}
 		if f.focusableAt(b.row) {
 			f.setFocus(b.row)
+			f.gesture.Arm(ev, b.row)
 			return true
 		}
 		return false
@@ -505,24 +509,48 @@ func (f *Form) HandleMouse(ev *tcell.EventMouse) bool {
 	return false
 }
 
-// handleScrollbarDrag is Form's own core.HandleScrollbarDrag, which can't be
-// reused: that takes one h as both track length and visible count, while Form's
-// scrollbar measures lines (f.rect.H, f.totalHeight) and f.scroll counts rows.
-// sbDragging latches the gesture so the drag survives leaving the bar's column;
-// HandleMouse's ButtonNone branch clears it.
-func (f *Form) handleScrollbarDrag(ev *tcell.EventMouse, w int) bool {
+// Form gesture zones besides a row index; see Form.gesture.
+const (
+	// formBar is a press on the form's scrollbar.
+	formBar = -1
+	// formInert is a press that acted on nothing (a read-only form's row): its
+	// drag is swallowed.
+	formInert = -2
+)
+
+// rowMouse offers ev to row i, if it exists and handles the mouse, and reports
+// whether the row claimed it.
+func (f *Form) rowMouse(i int, ev *tcell.EventMouse) bool {
+	if i < 0 || i >= len(f.rows) {
+		return false
+	}
+	mh, ok := f.rows[i].(core.MouseHandler)
+	return ok && mh.HandleMouse(ev)
+}
+
+// routeDrag delivers a held Button1 to what the press began on.
+func (f *Form) routeDrag(ev *tcell.EventMouse, z int) {
+	switch z {
+	case formBar:
+		_, my := ev.Position()
+		f.dragScrollbar(my, f.contentWidth())
+	case formInert:
+	default:
+		f.rowMouse(z, ev)
+	}
+}
+
+// dragScrollbar points the form at the track position of screen row my. Form
+// can't use core.HandleScrollbarDrag's math: that takes one h as both track
+// length and visible count, while Form's scrollbar measures lines (f.rect.H,
+// f.totalHeight) and f.scroll counts rows.
+func (f *Form) dragScrollbar(my, w int) {
 	total := f.totalHeight(w)
-	if ev.Buttons() != tcell.Button1 || total <= f.rect.H || f.rect.H <= 0 {
-		return false
+	if f.rect.H <= 0 || total <= f.rect.H {
+		return
 	}
-	mx, my := ev.Position()
-	if !f.sbDragging && (mx != f.rect.Right()-1 || my < f.rect.Y || my >= f.rect.Y+f.rect.H) {
-		return false
-	}
-	f.sbDragging = true
 	line := core.ScrollOffsetForDrag(my-f.rect.Y, f.rect.H, total, f.rect.H)
 	f.scroll = min(f.rowFromLine(line, w), f.maxScroll(w))
-	return true
 }
 
 // rowFromLine maps a drag's line offset to the first row starting at or after

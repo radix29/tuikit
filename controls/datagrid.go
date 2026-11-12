@@ -138,25 +138,16 @@ type DataGrid struct {
 	markFlips      map[int]struct{}
 	marking        bool
 
-	// mouseDragging distinguishes a fresh Button1 press (arm a new selection
-	// anchor) from a continued drag (keep the anchor, move the cursor).
-	mouseDragging bool
+	// gesture is the zone the held Button1 press began in (see gridZone). Every
+	// event until the release goes to that zone, wherever the pointer drifts:
+	// with one latch per zone, each branch tested only some of the others, and a
+	// cell-selection drag crossing a separator resized the column, reaching the
+	// right edge grabbed the scrollbar, and crossing a sortable header re-sorted.
+	gesture core.Gesture[gridZone]
 
-	// rowHeaderDragging latches a press on the row-number gutter from press to
-	// release: the gesture selects whole rows, as clicking SSMS's row header does,
-	// and a drag that wanders onto the cells keeps selecting rows rather than
-	// turning into a cell-block selection.
-	rowHeaderDragging bool
-
-	// sbDragging latches a scrollbar-thumb drag from press to release: while
-	// set, every Button1 event goes to the scrollbar regardless of x, never
-	// falling through to row/cell hit-testing.
-	sbDragging bool
-
-	// colResizing latches a column-separator drag. resizeStartX/W record the
-	// grab point and the width there, so each motion resolves against the
-	// original grab instead of accumulating.
-	colResizing  bool
+	// resizeCol/StartX/StartW record a gridResize gesture's grab point and the
+	// width there, so each motion resolves against the original grab instead of
+	// accumulating.
 	resizeCol    int
 	resizeStartX int
 	resizeStartW int
@@ -164,11 +155,6 @@ type DataGrid struct {
 	// sepClicks pairs presses on one column's separator into the
 	// default-width-restoring double-click.
 	sepClicks core.ClickTracker[int]
-
-	// sbDraggingH is sbDragging's counterpart for the horizontal scrollbar on
-	// the status row — a separate latch, since the bars sit on different
-	// edges.
-	sbDraggingH bool
 
 	// toggleRow/toggleCol record the last cell a toggle grid's click-drag
 	// activated, so tcell's Button1 resends at the same cell don't re-fire
@@ -209,17 +195,9 @@ type DataGrid struct {
 	sortCol  int
 	sortDesc bool
 
-	// headerPressed latches a press on the header row from press to release, so
-	// tcell's Button1 resends fire OnHeaderClick once per click and a drag begun on
-	// the header never reaches cell selection.
-	headerPressed bool
-
-	// rowPressed latches a press on a data row from press to release, so tcell's
-	// Button1 resends while held are not taken for the second press of a
-	// double-click. rowClicks pairs fresh presses on one data row for
-	// OnRowDoubleClick; a new row set resets it.
-	rowPressed bool
-	rowClicks  core.ClickTracker[int]
+	// rowClicks pairs fresh presses on one data row for OnRowDoubleClick; a new
+	// row set resets it.
+	rowClicks core.ClickTracker[int]
 
 	// browseOnly makes an editable grid behave as a read-only one for the
 	// moment: OnActivateCell is never called, and the grid gets the read-only
@@ -287,7 +265,7 @@ func NewDataGrid() *DataGrid {
 // so its grids can be browsed while the page can never become dirty.
 func (g *DataGrid) SetBrowseOnly(v bool) {
 	g.browseOnly = v
-	g.mouseDragging = false
+	g.gesture.Release()
 }
 
 // BrowseOnly reports whether SetBrowseOnly is in force.
@@ -351,10 +329,10 @@ func (g *DataGrid) SetSource(columns []string, rows RowSource) {
 	g.rows = rows
 	g.errorMode = false
 	g.selRow, g.selCol, g.scrollRow, g.scrollCol = 0, 0, 0, 0
-	g.blockSelecting, g.mouseDragging, g.sbDragging, g.sbDraggingH = false, false, false, false
-	g.headerPressed, g.rowHeaderDragging = false, false
-	// A press on the old set's row 3 and one on the new set's are not a double-click.
-	g.rowPressed = false
+	g.blockSelecting = false
+	// A press on the old set's row 3 and one on the new set's are not a double-click,
+	// and a drag in progress refers to the old rows and columns.
+	g.gesture.Release()
 	g.rowClicks.Reset()
 	// The indicator names a column of the old set; a host that sorted re-sets it.
 	g.sortCol, g.sortDesc = -1, false
@@ -362,7 +340,7 @@ func (g *DataGrid) SetSource(columns []string, rows RowSource) {
 	g.ClearMarkedRows()
 	// The dragged widths belong to the old columns; this result set's column 2
 	// is unrelated to the last one's.
-	g.colWidthOverride, g.colResizing = nil, false
+	g.colWidthOverride = nil
 	// Only Escape or Close dismiss the viewer, so leaving it open strands it
 	// over stale text while it still claims every key and mouse event.
 	g.viewer.Close()
@@ -425,13 +403,12 @@ func (g *DataGrid) SetError(err error) {
 	g.rows = SliceRowSource{{err.Error()}}
 	g.errorMode = true
 	g.selRow, g.selCol, g.scrollRow, g.scrollCol = 0, 0, 0, 0
-	g.blockSelecting, g.mouseDragging, g.sbDragging, g.sbDraggingH = false, false, false, false
-	g.headerPressed, g.rowHeaderDragging = false, false
-	g.rowPressed = false
+	g.blockSelecting = false
+	g.gesture.Release()
 	g.rowClicks.Reset()
 	g.sortCol, g.sortDesc = -1, false
 	g.ClearMarkedRows()
-	g.colWidthOverride, g.colResizing = nil, false
+	g.colWidthOverride = nil
 	// See SetSource: an open viewer would strand itself over stale text.
 	g.viewer.Close()
 	g.computeColWidths()

@@ -333,8 +333,8 @@ func TestDataGridMouseDragSelectsBlock(t *testing.T) {
 	}
 
 	g.HandleMouse(tcell.NewEventMouse(x1, y1, tcell.ButtonNone, tcell.ModNone))
-	if g.mouseDragging {
-		t.Fatal("mouseDragging should reset on release")
+	if g.gestureZone() != nil {
+		t.Fatal("the gesture should end on release")
 	}
 
 	g.HandleMouse(tcell.NewEventMouse(x0, y0, tcell.Button1, tcell.ModNone))

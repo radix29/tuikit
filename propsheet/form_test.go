@@ -67,8 +67,8 @@ func TestFormScrollbarDragScrolls(t *testing.T) {
 	if !f.HandleMouse(tcell.NewEventMouse(sbX, f.rect.Y+f.rect.H-1, tcell.Button1, tcell.ModNone)) {
 		t.Fatal("HandleMouse on the scrollbar column should be handled")
 	}
-	if !f.sbDragging {
-		t.Fatal("sbDragging should be true after pressing on the scrollbar")
+	if z, held := f.gesture.Owner(); !held || z != formBar {
+		t.Fatal("pressing on the scrollbar should start a thumb drag")
 	}
 	if f.scroll == 0 {
 		t.Error("scroll should have jumped forward when clicking near the bottom of the track")
@@ -78,8 +78,8 @@ func TestFormScrollbarDragScrolls(t *testing.T) {
 	}
 
 	f.HandleMouse(tcell.NewEventMouse(sbX, f.rect.Y, tcell.ButtonNone, tcell.ModNone))
-	if f.sbDragging {
-		t.Error("sbDragging should reset on release")
+	if _, held := f.gesture.Owner(); held {
+		t.Error("the thumb drag should end on release")
 	}
 }
 

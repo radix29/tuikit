@@ -207,3 +207,122 @@ func TestDropDownOnChangeFiresOnUserPicksOnly(t *testing.T) {
 		t.Errorf("OnChange calls = %v, want %v", got, want)
 	}
 }
+
+// The contract tests below (AR2) run every widget through the rules of
+// core.MouseHandler and core.KeyHandler and tuikit's ARCHITECTURE.md § Mouse
+// gestures; controls/control_test.go has the same tables for the controls. A
+// new widget joins each table.
+
+type contractWidget interface {
+	core.KeyHandler
+	core.MouseHandler
+	core.Focusable
+	Draw(tcell.Screen)
+}
+
+// contractWidgets builds each widget at (0,0), focused; empty gives the ones
+// with content none.
+func contractWidgets(empty bool) []struct {
+	name string
+	w    contractWidget
+} {
+	items := []string{"First", "Second", "Third"}
+	value := "some text to select"
+	if empty {
+		items, value = nil, ""
+	}
+	in := NewInputField("Name:", 12, false)
+	in.SetValue(value)
+	ws := []struct {
+		name string
+		w    contractWidget
+	}{
+		{"Button", NewButton("OK", nil)},
+		{"CheckBox", NewCheckBox("Encrypt")},
+		{"RadioBox", NewRadioBox("Mode", items)},
+		{"DropDown", NewDropDown("Auth:", items, 8)},
+		{"InputField", in},
+		{"InputField password", NewInputField("Pass:", 12, true)},
+	}
+	for _, c := range ws {
+		c.w.(interface{ SetBounds(x, y int) }).SetBounds(0, 0)
+		c.w.Focus(true)
+	}
+	return ws
+}
+
+// Plain motion is never claimed, anywhere over a widget: a host reads a
+// claimed hover as a press and moves focus.
+func TestContractHoverIsNotClaimed(t *testing.T) {
+	for _, c := range contractWidgets(false) {
+		for y := range 5 {
+			for x := range 30 {
+				if c.w.HandleMouse(tuikittest.Mouse(x, y, tcell.ButtonNone)) {
+					t.Errorf("%s: hover at (%d,%d) claimed", c.name, x, y)
+				}
+			}
+		}
+	}
+}
+
+// A release anywhere ends every gesture the widget held: afterwards neither
+// plain motion nor a fresh press outside is claimed.
+func TestContractReleaseAnywhereClearsEveryLatch(t *testing.T) {
+	// One inside point per widget, on its box or first option.
+	press := map[string][2]int{
+		"Button": {2, 0}, "CheckBox": {1, 0}, "RadioBox": {1, 1}, "DropDown": {8, 0},
+		"InputField": {9, 0}, "InputField password": {9, 0},
+	}
+	for _, outside := range []bool{false, true} {
+		for _, c := range contractWidgets(false) {
+			p, ok := press[c.name]
+			if !ok {
+				t.Fatalf("%s: no press point", c.name)
+			}
+			rel := p
+			if outside {
+				rel = [2]int{70, 30}
+			}
+			c.w.HandleMouse(tuikittest.Press(p[0], p[1]))
+			c.w.HandleMouse(tuikittest.Mouse(p[0]+3, p[1], tcell.Button1))
+			c.w.HandleMouse(tuikittest.Release(rel[0], rel[1]))
+			if o, ok := c.w.(core.Overlay); ok && o.OverlayActive() {
+				continue // the press opened a list: the overlay rules apply
+			}
+			if c.w.HandleMouse(tuikittest.Mouse(p[0]+1, p[1], tcell.ButtonNone)) {
+				t.Errorf("%s: release at %v: next motion claimed", c.name, rel)
+			}
+			if c.w.HandleMouse(tuikittest.Press(70, 30)) {
+				t.Errorf("%s: release at %v: a later press outside claimed", c.name, rel)
+			}
+		}
+	}
+}
+
+// Navigation keys on a widget with no items or no text neither panic nor
+// leave state the next Draw trips over.
+func TestContractNavKeysOnEmptyContentKeepDrawWorking(t *testing.T) {
+	keys := []tcell.Key{
+		tcell.KeyHome, tcell.KeyEnd, tcell.KeyPgUp, tcell.KeyPgDn,
+		tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight, tcell.KeyEnter,
+	}
+	for _, mod := range []tcell.ModMask{tcell.ModNone, tcell.ModShift, tcell.ModCtrl} {
+		for _, c := range contractWidgets(true) {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						t.Errorf("%s (mod %v): panic: %v", c.name, mod, r)
+					}
+				}()
+				scr := tuikittest.NewScreen(40, 10)
+				for _, k := range keys {
+					c.w.HandleKey(tuikittest.Key(k, mod))
+					c.w.Draw(scr)
+					if o, ok := c.w.(core.Overlay); ok {
+						o.DrawOverlay(scr)
+					}
+				}
+			}()
+		}
+	}
+}

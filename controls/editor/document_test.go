@@ -72,7 +72,7 @@ func TestDocumentVersionChangesOnUndoAndRedo(t *testing.T) {
 	e.SetBounds(0, 0, 40, 10)
 	e.SetText("select /* open")
 
-	e.pushUndo()
+	e.pushUndoSpan(0, e.doc.Len())
 	e.cursorRow, e.cursorCol = 0, len(e.doc.Line(0))
 	e.insertRune('*')
 	e.insertRune('/')

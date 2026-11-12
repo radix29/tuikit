@@ -202,3 +202,34 @@ func TestBufferTextReadsAColumnRange(t *testing.T) {
 		t.Errorf("RuneAt on a wide glyph's trailing cell = %q, want 0", got)
 	}
 }
+
+// BG11: a cell written over either half of a wide grapheme blanks the other
+// half, as tcell does, so Blit neither skips a stale cell nor steps over the
+// new one.
+func TestBufferWriteOverHalfAWideGraphemeBlanksTheOtherHalf(t *testing.T) {
+	for _, tc := range []struct {
+		name, base string
+		x          int
+		put, want  string
+	}{
+		{"narrow over the lead", "a中b", 1, "X", "aX b"},
+		{"narrow over the trail", "a中b", 2, "X", "a Xb"},
+		{"wide straddling two wide", "中中", 1, "中", " 中 "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := NewBuffer(4, 1)
+			b.PutStr(0, 0, tc.base)
+			b.PutStr(tc.x, 0, tc.put)
+			if got := b.Row(0); got != tc.want {
+				t.Errorf("Row = %q, want %q", got, tc.want)
+			}
+			// Blit over a screen of '.': no cell is skipped (a stale '.' showing)
+			// and none is stepped over.
+			s := dotted(4, 1)
+			b.Blit(s, b.Rect(), b.Rect())
+			if got := s.Row(0); got != tc.want {
+				t.Errorf("blitted row = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

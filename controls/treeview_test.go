@@ -1,6 +1,7 @@
 package controls
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/gdamore/tcell/v3"
 	"github.com/radix29/tuikit/core"
 	"github.com/radix29/tuikit/theme"
+	"github.com/radix29/tuikit/tuikittest"
 )
 
 func newTestTreeView() *TreeView {
@@ -190,7 +192,7 @@ func TestTreeViewClickOnExpanderTogglesRowWhileScrolled(t *testing.T) {
 // TestTreeViewHeldButtonOverExpanderDoesNotReToggle covers the
 // open-then-immediately-close flicker: tcell's all-motion mouse tracking
 // resends Buttons()==Button1 on every cursor motion while the button stays
-// down, so without the press latch a click on the expander that
+// down, so without the press gesture a click on the expander that
 // twitches before release re-toggles the node right back closed.
 func TestTreeViewHeldButtonOverExpanderDoesNotReToggle(t *testing.T) {
 	tv := newTestTreeViewExpandable()
@@ -409,7 +411,7 @@ func TestHorizontalScrollbarDragMovesScrollX(t *testing.T) {
 // landed on, so it must report "no node" for every part of the widget that
 // isn't a node row — in particular the vertical scrollbar column, which the
 // internal row hit-test never bounded mx against (that bound lived only in
-// HandleScrollbarDrag, running first). App's Object Explorer drag-and-drop
+// the scrollbar hit-test, running first). App's Object Explorer drag-and-drop
 // arms from this: without the column check, a press on the scrollbar armed a
 // node drag that then swallowed every motion event, so the thumb never
 // followed the mouse.
@@ -894,7 +896,66 @@ func TestTreeViewScrollbarDragContinuesPastTheEdge(t *testing.T) {
 	if tv.HandleMouse(tcell.NewEventMouse(39, 50, tcell.ButtonNone, tcell.ModNone)) {
 		t.Error("release outside the tree consumed")
 	}
-	if tv.sbDragging {
+	if _, held := tv.gesture.Owner(); held {
 		t.Error("release outside the tree left the thumb drag latched")
+	}
+}
+
+// TestTreeViewNavKeysOnEmptyTreeDoNotBreakDraw: PgDn on an empty tree set
+// sel = min(len-1, …) = -1, ensureVisible copied it to scroll, and Draw then
+// indexed nodes[-1].
+func TestTreeViewNavKeysOnEmptyTreeDoNotBreakDraw(t *testing.T) {
+	for _, k := range []tcell.Key{tcell.KeyPgDn, tcell.KeyPgUp, tcell.KeyHome, tcell.KeyEnd, tcell.KeyUp, tcell.KeyDown} {
+		tv := NewTreeView()
+		tv.SetBounds(0, 0, 40, 10)
+		tv.SetNodes(nil)
+		tv.HandleKey(tuikittest.Key(k))
+		if tv.scroll < 0 || tv.sel > 0 {
+			t.Fatalf("key %v: scroll = %d, sel = %d on an empty tree", k, tv.scroll, tv.sel)
+		}
+		tv.Draw(tuikittest.NewScreen(40, 10)) // must not panic
+	}
+}
+
+// TestTreeViewPopulatedBeforeSetBoundsStartsAtTheTop: SetNodes before the first
+// SetBounds scrolled into an Inner(1).H of -2, so the first frame began at node 3.
+func TestTreeViewPopulatedBeforeSetBoundsStartsAtTheTop(t *testing.T) {
+	tv := NewTreeView()
+	nodes := make([]TreeNode, 30)
+	for i := range nodes {
+		nodes[i] = TreeNode{ID: TreeNodeID(i + 1), Label: fmt.Sprintf("node%02d", i)}
+	}
+	tv.SetNodes(nodes)
+	tv.SetBounds(0, 0, 40, 10)
+	s := tuikittest.NewScreen(40, 10)
+	tv.Draw(s)
+	if tv.scroll != 0 {
+		t.Fatalf("scroll = %d after SetNodes then SetBounds, want 0", tv.scroll)
+	}
+	if y := s.RowOf("node00"); y != 1 {
+		t.Fatalf("node00 drawn at row %d, want 1 (the first row inside the border)\n%s", y, s.Snapshot())
+	}
+}
+
+// TestTreeViewSetBoundsTallerReclampsScroll: a tree scrolled to its end kept that
+// offset when it grew taller, leaving blank rows below the last node.
+func TestTreeViewSetBoundsTallerReclampsScroll(t *testing.T) {
+	tv := NewTreeView()
+	tv.SetBounds(0, 0, 40, 10) // 8 rows
+	nodes := make([]TreeNode, 20)
+	for i := range nodes {
+		nodes[i] = TreeNode{ID: TreeNodeID(i + 1)}
+	}
+	tv.SetNodes(nodes)
+	tv.HandleKey(tuikittest.Key(tcell.KeyEnd))
+	if tv.scroll != 12 {
+		t.Fatalf("scroll = %d after End, want 12", tv.scroll)
+	}
+	tv.SetBounds(0, 0, 40, 20) // 18 rows: only 2 of scroll are still needed
+	if tv.scroll != 2 {
+		t.Fatalf("scroll = %d after growing to 18 rows, want 2", tv.scroll)
+	}
+	if tv.sel != 19 {
+		t.Fatalf("sel = %d, SetBounds must not move the selection", tv.sel)
 	}
 }

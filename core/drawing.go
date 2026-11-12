@@ -390,16 +390,19 @@ func DrawScrollbarH(s tcell.Screen, x, y, w, total, visible, offset int, style, 
 // *dragging latches for the whole gesture: set on the qualifying initial press,
 // so every call while the button stays down controls *scroll even once the mouse
 // drifts off the bar's column. The caller clears it on release (with its other
-// latches, e.g. DataGrid/TreeView/ListBox/Editor's mouseDragging, or
-// ModalDialog.ConsumeOutsideClick). Returns false, writing nothing, for anything
-// but a qualifying Button1 event, so callers can chain it before their own
-// hit-testing.
+// latches, e.g. ListBox's press latch, or ModalDialog.ConsumeOutsideClick).
+// Returns false, writing nothing, for anything but a qualifying Button1 event,
+// so callers can chain it before their own hit-testing.
+//
+// A widget whose drags are owned by a Gesture has no bool to pass: it tests a
+// fresh press with OnScrollbar and, on that press and every routed repeat, sets
+// the offset from ScrollOffsetForDrag.
 func HandleScrollbarDrag(ev *tcell.EventMouse, x, y, h, total int, dragging *bool, scroll *int) bool {
-	if ev.Buttons() != tcell.Button1 || total <= h || h <= 0 {
+	if ev.Buttons() != tcell.Button1 {
 		return false
 	}
 	mx, my := ev.Position()
-	if !*dragging && (mx != x || my < y || my >= y+h) {
+	if total <= h || h <= 0 || (!*dragging && !OnScrollbar(mx, my, x, y, h, total)) {
 		return false
 	}
 	*dragging = true
@@ -411,14 +414,27 @@ func HandleScrollbarDrag(ev *tcell.EventMouse, x, y, h, total int, dragging *boo
 // bar drawn by DrawScrollbarH at row y spanning [x, x+w). The same
 // h/visible-conflation caveat applies to w.
 func HandleScrollbarDragH(ev *tcell.EventMouse, x, y, w, total int, dragging *bool, scroll *int) bool {
-	if ev.Buttons() != tcell.Button1 || total <= w || w <= 0 {
+	if ev.Buttons() != tcell.Button1 {
 		return false
 	}
 	mx, my := ev.Position()
-	if !*dragging && (my != y || mx < x || mx >= x+w) {
+	if total <= w || w <= 0 || (!*dragging && !OnScrollbarH(mx, my, x, y, w, total)) {
 		return false
 	}
 	*dragging = true
 	*scroll = ScrollOffsetForDrag(mx-x, w, total, w)
 	return true
+}
+
+// OnScrollbar reports whether (mx, my) is on the vertical bar DrawScrollbar
+// draws at column x over rows [y, y+h) for total rows: whether a press there
+// starts a thumb drag. False when the content fits, as no bar is drawn then.
+func OnScrollbar(mx, my, x, y, h, total int) bool {
+	return h > 0 && total > h && mx == x && my >= y && my < y+h
+}
+
+// OnScrollbarH is OnScrollbar for the horizontal bar DrawScrollbarH draws at row
+// y over columns [x, x+w), with w doubling as the visible count.
+func OnScrollbarH(mx, my, x, y, w, total int) bool {
+	return w > 0 && total > w && my == y && mx >= x && mx < x+w
 }

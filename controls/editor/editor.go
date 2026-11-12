@@ -113,18 +113,16 @@ type Editor struct {
 
 	// Selection: selecting is true while a Shift+move or mouse-drag selection is
 	// active; selAnchor{Row,Col} is the fixed end, cursorRow/cursorCol the moving
-	// end, and anchor == cursor counts as empty. mouseDragging distinguishes a fresh
-	// Button1 click (new anchor) from a continued drag (keep the anchor).
+	// end, and anchor == cursor counts as empty.
 	//
 	// selBlock reinterprets the pair as a rectangular (column) selection: every row
 	// between them at the same [loCol,hiCol) range (see blockColumnBounds). Entered
 	// via Alt+Shift+Arrow or Alt+drag, never in wrapMode, which breaks the fixed rune
 	// columns it assumes.
-	selecting     bool
-	selBlock      bool
-	selAnchorRow  int
-	selAnchorCol  int
-	mouseDragging bool
+	selecting    bool
+	selBlock     bool
+	selAnchorRow int
+	selAnchorCol int
 
 	// clicks pairs fresh Button1 presses on one {row, col} text position into the
 	// double-click that selects a word.
@@ -136,12 +134,11 @@ type Editor struct {
 	// rectangularly. Cleared by any non-block copy.
 	blockClip string
 
-	// sbDragging latches a scrollbar-thumb drag. Separate from mouseDragging: once
-	// set, every Button1 event controls the bar regardless of x.
-	sbDragging bool
-
-	// sbDraggingX is sbDragging's counterpart for the bar along the bottom row.
-	sbDraggingX bool
+	// gesture is the zone the held Button1 press began in (see editorZone): every
+	// event until the release goes to it, wherever the pointer drifts, so a text
+	// selection never turns into a scrollbar drag and a thumb keeps following the
+	// pointer off the editor.
+	gesture core.Gesture[editorZone]
 
 	undoStack []editorState
 	redoStack []editorState
@@ -162,7 +159,11 @@ type Editor struct {
 	completionItems    []CompletionItem
 	completionSel      int // -1: nothing selected (see CompletionItem.Partial)
 	completionScroll   int
-	completionFrom     int // column where the replaced span starts; valid only while completionOpen
+	// completionClicks pairs presses on one popup row into the double-click that
+	// commits it; a single click only selects. Reset whenever the items change,
+	// so a press on the old list's row and one on the new list's never pair.
+	completionClicks core.ClickTracker[int]
+	completionFrom   int // column where the replaced span starts; valid only while completionOpen
 	// completionExplicit marks a popup opened by Ctrl+Space, which always keeps a
 	// selection; cleared when it closes.
 	completionExplicit bool
@@ -173,15 +174,6 @@ type Editor struct {
 	completionSuppressed  bool
 	completionSuppressRow int
 	completionSuppressCol int
-
-	// completionMouseDown separates a fresh Button1 press on the popup from a
-	// continued hold over the same row: otherwise tcell's all-motion tracking would
-	// call commitSelectedCompletion twice for one click on a selected item.
-	completionMouseDown bool
-
-	// completionSbDragging is the popup scrollbar's equivalent of
-	// completionMouseDown, separate for the same reason as sbDragging.
-	completionSbDragging bool
 
 	// search holds the active find/replace pattern and match list; zero means no
 	// search.
@@ -258,8 +250,8 @@ func (e *Editor) wrapWidth() int {
 // drawWrapped fetches runs per logical line and resolves columns through styleAt.
 //
 // Switching mode resets state the modes disagree about: selBlock assumes fixed
-// rune columns (and handleMouseWrapped never sets it, so no click would clear
-// it), scrollCol applies only outside wrap mode, and scrollRow indexes visual
+// rune columns (and only a fresh press would clear one left set, reading the
+// wrapped rows as a rectangle until then), scrollCol applies only outside wrap mode, and scrollRow indexes visual
 // rows in wrap mode, logical lines outside it. Setting the current mode is a
 // no-op, so the construction-time call doesn't move the cursor. The cursor is
 // kept and the view scrolls back to it once laid out; otherwise a runtime toggle
@@ -268,7 +260,8 @@ func (e *Editor) SetWrapMode(v bool) {
 	if v == e.wrapMode {
 		return
 	}
-	e.selecting, e.selBlock, e.mouseDragging = false, false, false
+	e.selecting, e.selBlock = false, false
+	e.gesture.Release()
 	e.scrollRow, e.scrollCol = 0, 0
 	e.wrapMode = v
 	if e.rect.H > 0 && e.rect.W > e.gutterWidth() {
@@ -365,7 +358,8 @@ func (e *Editor) SetLineBuffer(b *LineBuffer) {
 // resetForNewText drops everything that referred to the previous document.
 func (e *Editor) resetForNewText() {
 	e.cursorRow, e.cursorCol, e.scrollRow, e.scrollCol = 0, 0, 0, 0
-	e.selecting, e.selBlock, e.mouseDragging, e.sbDragging, e.sbDraggingX = false, false, false, false, false
+	e.selecting, e.selBlock = false, false
+	e.gesture.Release()
 	e.undoStack, e.redoStack, e.undoBytes, e.stepOpen = nil, nil, 0, false
 	e.closeCompletion()
 	e.completionSuppressed = false

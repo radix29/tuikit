@@ -124,8 +124,7 @@ func (e *Editor) closeCompletion() {
 	e.completionItems = nil
 	e.completionSel = 0
 	e.completionScroll = 0
-	e.completionMouseDown = false
-	e.completionSbDragging = false
+	e.completionClicks.Reset()
 }
 
 // completionRequest packages the cursor position and the buffer's revision for a
@@ -165,6 +164,7 @@ func (e *Editor) updateCompletion() {
 	}
 	e.completionItems = items
 	e.completionFrom = from
+	e.completionClicks.Reset()
 	switch {
 	case !e.completionExplicit && !hasPrefixCompletion(items):
 		e.completionSel = -1
@@ -294,6 +294,7 @@ func (e *Editor) triggerCompletionExplicit() {
 	}
 	e.completionItems = items
 	e.completionFrom = from
+	e.completionClicks.Reset()
 	e.completionOpen = true
 	e.completionExplicit = true
 	e.completionSel = e.firstSelectableCompletion(0, 1)
@@ -449,20 +450,20 @@ func (e *Editor) ensureCompletionVisible() {
 // Mouse
 // ---------------------------------------------------------------------------
 
-// handleCompletionMouse gives the open popup first refusal of a mouse event. A
-// click outside closes it but returns false, so the click still reaches what is
-// underneath, as widgets.DropDown does.
+// handleCompletionMouse gives the open popup first refusal of a mouse event
+// that is not part of a held gesture (HandleMouse routes those), so every
+// Button1 here is a fresh press. A click outside closes it but returns false, so
+// the click still reaches what is underneath, as widgets.DropDown does.
 func (e *Editor) handleCompletionMouse(ev *tcell.EventMouse) bool {
 	rect := e.completionRect()
 	mx, my := ev.Position()
-	if ev.Buttons() == tcell.ButtonNone {
-		e.completionMouseDown = false
-		e.completionSbDragging = false
-	}
 
 	// Scrollbar drag/click outranks item hit-testing: the bar is drawn over the
 	// rightmost popup column and would read as a click on the item in that row.
-	if core.HandleScrollbarDrag(ev, rect.Right()-1, rect.Y, rect.H, len(e.completionItems), &e.completionSbDragging, &e.completionScroll) {
+	if ev.Buttons() == tcell.Button1 && core.OnScrollbar(mx, my, rect.Right()-1, rect.Y, rect.H, len(e.completionItems)) {
+		e.dragCompletionScrollbar(my)
+		e.completionClicks.Reset() // a bar press is never half of an item's double-click
+		e.gesture.Arm(ev, editorPopupBar)
 		return true
 	}
 
@@ -490,23 +491,34 @@ func (e *Editor) handleCompletionMouse(ev *tcell.EventMouse) bool {
 			e.closeCompletion()
 			return false
 		}
-		if e.completionMouseDown {
-			// Same physical press: don't re-commit on every resend.
-			return true
-		}
-		e.completionMouseDown = true
+		// The resends while held are the gesture's, so one click commits once.
+		e.gesture.Arm(ev, editorPopupItem)
 		idx := e.completionScroll + (my - rect.Y)
 		if idx < 0 || idx >= len(e.completionItems) || e.completionItems[idx].Placeholder {
 			return true
 		}
-		if idx == e.completionSel {
+		// A click selects and a double-click commits, as in SSMS, whichever row
+		// was selected: committing on a click on the selected row made one click
+		// commit on the preselected first row and only select on any other.
+		e.completionSel = idx
+		if e.completionClicks.Press(idx, ev.When()) {
 			e.commitSelectedCompletion()
-		} else {
-			e.completionSel = idx
 		}
 		return true
 	}
 	return false
+}
+
+// dragCompletionScrollbar points the popup's list at the track position of
+// screen row my, while the popup is open.
+func (e *Editor) dragCompletionScrollbar(my int) {
+	if !e.completionOpen {
+		return
+	}
+	rect := e.completionRect()
+	if n := len(e.completionItems); rect.H > 0 && n > rect.H {
+		e.completionScroll = core.ScrollOffsetForDrag(my-rect.Y, rect.H, n, rect.H)
+	}
 }
 
 // ---------------------------------------------------------------------------

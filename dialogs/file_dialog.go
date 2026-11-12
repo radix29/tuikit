@@ -65,6 +65,9 @@ type FileDialog struct {
 	// (as TreeView): otherwise one click on an already-selected row could call
 	// activateSelected repeatedly.
 	listPress core.PressLatch
+	// clicks pairs fresh presses on one row into the double-click that opens it
+	// (as ListBox); a single click only selects, whichever row was selected.
+	clicks core.ClickTracker[int]
 
 	// drag is the text-selection gesture a click in pathField or nameField starts;
 	// see FieldGesture for the ordering its three calls need.
@@ -172,7 +175,9 @@ func (d *FileDialog) showBusy(msg string) {
 		return
 	}
 	d.busy = msg
-	d.Draw(d.screen)
+	// Through a ClipScreen, as Stack.Draw does: on a plain screen a clamped
+	// dialog's content is not clipped and spills across the UI for this frame.
+	d.Draw(core.NewClipScreen(d.screen))
 	d.screen.Show()
 }
 
@@ -217,6 +222,10 @@ func (d *FileDialog) loadDir(dir string) {
 	d.dir = clean
 	d.pathField.SetValue(strings.TrimSuffix(clean, sep) + sep)
 	d.sel, d.scroll = 0, 0
+	// A press on the old listing's row 2 and one on the new listing's are not a
+	// double-click: without this, a quick double-click on a folder pairs its
+	// second press with the first row of the folder it opened.
+	d.clicks.Reset()
 
 	d.showBusy("Listing " + clean + " ...")
 	infos, err := fs.List(clean)
@@ -359,7 +368,7 @@ func (d *FileDialog) navigateTyped() {
 	d.setFocus(ffList)
 }
 
-// activateSelected runs Enter, or a same-row click, on the list: descends into
+// activateSelected runs Enter, or a double-click, on the list: descends into
 // the selected directory, or confirms the selected file as the chosen path.
 func (d *FileDialog) activateSelected() {
 	if d.sel < 0 || d.sel >= len(d.entries) {

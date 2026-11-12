@@ -22,8 +22,8 @@ func TestEditorScrollbarDragScrolls(t *testing.T) {
 	if !e.HandleMouse(tcell.NewEventMouse(sbX, e.rect.Y+e.rect.H-1, tcell.Button1, tcell.ModNone)) {
 		t.Fatal("HandleMouse on scrollbar column should be handled")
 	}
-	if !e.sbDragging {
-		t.Fatal("sbDragging should be true after pressing on the scrollbar")
+	if !e.gestureIs(editorVBar) {
+		t.Fatal("pressing on the scrollbar should start a thumb drag")
 	}
 	if e.scrollRow == 0 {
 		t.Error("scrollRow should have jumped forward when clicking near the bottom of the track")
@@ -33,8 +33,8 @@ func TestEditorScrollbarDragScrolls(t *testing.T) {
 	}
 
 	e.HandleMouse(tcell.NewEventMouse(sbX, e.rect.Y, tcell.ButtonNone, tcell.ModNone))
-	if e.sbDragging {
-		t.Error("sbDragging should reset on release")
+	if e.gestureHeld() {
+		t.Error("the thumb drag should end on release")
 	}
 }
 
@@ -64,8 +64,8 @@ func TestEditorCompletionPopupScrollbarDragScrolls(t *testing.T) {
 	if !e.HandleMouse(tcell.NewEventMouse(sbX, rect.Y+rect.H-1, tcell.Button1, tcell.ModNone)) {
 		t.Fatal("HandleMouse on the popup's scrollbar column should be handled")
 	}
-	if !e.completionSbDragging {
-		t.Fatal("completionSbDragging should be true after pressing on the scrollbar")
+	if !e.gestureIs(editorPopupBar) {
+		t.Fatal("pressing on the popup's scrollbar should start a thumb drag")
 	}
 	if e.completionScroll == 0 {
 		t.Error("completionScroll should have jumped forward when clicking near the bottom of the track")
@@ -78,8 +78,8 @@ func TestEditorCompletionPopupScrollbarDragScrolls(t *testing.T) {
 	}
 
 	e.HandleMouse(tcell.NewEventMouse(sbX, rect.Y, tcell.ButtonNone, tcell.ModNone))
-	if e.completionSbDragging {
-		t.Error("completionSbDragging should reset on release")
+	if e.gestureHeld() {
+		t.Error("the popup's thumb drag should end on release")
 	}
 }
 
@@ -99,8 +99,8 @@ func TestEditorScrollbarDragScrollsWrapMode(t *testing.T) {
 	if !e.HandleMouse(tcell.NewEventMouse(sbX, e.rect.Y+e.rect.H-1, tcell.Button1, tcell.ModNone)) {
 		t.Fatal("HandleMouse on scrollbar column should be handled in wrap mode")
 	}
-	if !e.sbDragging {
-		t.Fatal("sbDragging should be true after pressing on the scrollbar")
+	if !e.gestureIs(editorVBar) {
+		t.Fatal("pressing on the scrollbar should start a thumb drag")
 	}
 	if e.scrollRow == 0 {
 		t.Error("scrollRow should have jumped forward when clicking near the bottom of the track")

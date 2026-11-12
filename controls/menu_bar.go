@@ -62,8 +62,29 @@ func (mb *MenuBar) SetBounds(x, y, w int) {
 // for anything sharing the bar's row, such as a right-aligned Toolbar.
 func (mb *MenuBar) LabelsEnd() int { return mb.menuHeaderOffset(len(mb.menus)) }
 
-// SetMenus replaces all menus.
-func (mb *MenuBar) SetMenus(menus []Menu) { mb.menus = menus }
+// SetMenus replaces all menus. An open dropdown whose menu is gone closes; one
+// that remains keeps its highlight when that row still exists and is
+// selectable, else moves it to the first selectable row. Without this, fewer
+// menus left openMenu past the end and the next key or mouse event indexed
+// menus[openMenu].
+func (mb *MenuBar) SetMenus(menus []Menu) {
+	mb.menus = menus
+	if mb.hoverMenu >= len(menus) {
+		mb.hoverMenu = -1
+	}
+	if mb.openMenu < 0 {
+		return
+	}
+	if mb.openMenu >= len(menus) {
+		mb.Close()
+		return
+	}
+	items := menus[mb.openMenu].Items
+	if mb.selectedItem >= len(items) || (mb.selectedItem >= 0 && menuItemSkippable(items[mb.selectedItem])) {
+		mb.selectedItem = firstSelectableItem(items)
+		mb.cascade.reset()
+	}
+}
 
 // OverlayActive reports whether a dropdown is open (core.Overlay).
 func (mb *MenuBar) OverlayActive() bool { return mb.openMenu >= 0 }
@@ -86,6 +107,9 @@ func (mb *MenuBar) Open() {
 	if mb.openMenu < 0 && len(mb.menus) > 0 {
 		if mb.OnBeforeOpen != nil {
 			mb.OnBeforeOpen()
+			if len(mb.menus) == 0 { // the hook may SetMenus
+				return
+			}
 		}
 		mb.openMenu = 0
 		mb.hoverMenu = 0
@@ -231,7 +255,8 @@ func (mb *MenuBar) HandleMouse(ev *tcell.EventMouse) bool {
 	mx, my := ev.Position()
 	wasOpen := mb.openMenu >= 0
 
-	mb.press.Release(ev)
+	held := mb.press.Held()
+	released := mb.press.Release(ev)
 
 	// Cleared off the bar's row as well, or a label stays lit after the pointer
 	// leaves it downwards.
@@ -250,22 +275,31 @@ func (mb *MenuBar) HandleMouse(ev *tcell.EventMouse) bool {
 						mb.Close()
 						if mb.OnBeforeOpen != nil {
 							mb.OnBeforeOpen()
+							if i >= len(mb.menus) { // the hook may SetMenus
+								return true
+							}
 						}
 						mb.openMenu = i
 						mb.selectedItem = firstSelectableItem(mb.menus[i].Items)
 					}
 				}
-				return true
+				// Hover lights the label but is not claimed while every menu is
+				// closed (core.MouseHandler).
+				return !released || held || wasOpen
 			}
 			col += labelW
 		}
-		// On the bar row but off every label, over the toolbar say: a click
-		// still dismisses an open menu, and the event is swallowed either
-		// way.
-		if wasOpen && ev.Buttons() == tcell.Button1 {
+		// On the bar row but off every label, over the toolbar say: a press
+		// still dismisses an open menu. Only a right-click falls through
+		// (outsideMenu).
+		if !wasOpen {
+			return false
+		}
+		dismiss, consumed := outsideMenu(ev)
+		if dismiss {
 			mb.Close()
 		}
-		return wasOpen
+		return consumed || ev.Buttons() == tcell.ButtonNone
 	}
 
 	if wasOpen {
@@ -280,10 +314,13 @@ func (mb *MenuBar) HandleMouse(ev *tcell.EventMouse) bool {
 			row += mb.scrollTop
 		}
 		if !inside {
-			if ev.Buttons() == tcell.Button1 {
+			// Motion outside is swallowed while the dropdown is open: the bar
+			// owns the pointer until it closes.
+			dismiss, consumed := outsideMenu(ev)
+			if dismiss {
 				mb.Close()
 			}
-			return true
+			return consumed || ev.Buttons() == tcell.ButtonNone
 		}
 		items := mb.cascade.levelItems(root, level)
 		if row < 0 || row >= len(items) {

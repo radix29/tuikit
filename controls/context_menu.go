@@ -176,13 +176,16 @@ func (cm *ContextMenu) HandleMouse(ev *tcell.EventMouse) bool {
 	if !inside {
 		// A click outside dismisses the menu and stops there: it must not also reach
 		// whatever it landed on (see ModalDialog.ConsumeOutsideClick, which likewise
-		// consumes). Motion with no button held still falls through, so hover
-		// tracking elsewhere keeps working while the menu is open.
-		if ev.Buttons() == tcell.Button1 {
+		// consumes). A right-click dismisses and falls through, so the host can open
+		// the next menu where it landed; a wheel tick is swallowed rather than
+		// scrolling the pane the menu is anchored to. Motion with no button held
+		// still falls through, so hover tracking elsewhere keeps working while the
+		// menu is open.
+		dismiss, consumed := outsideMenu(ev)
+		if dismiss {
 			cm.Hide()
-			return true
 		}
-		return false
+		return consumed
 	}
 
 	items := cm.cascade.levelItems(cm.items, level)

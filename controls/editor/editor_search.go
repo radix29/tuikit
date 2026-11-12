@@ -584,7 +584,9 @@ func (e *Editor) ReplaceAll() int {
 	if len(targets) == 0 {
 		return 0
 	}
-	e.pushUndo()
+	// targets is sorted by row (scanMatches' order, filtered), and replaceMatch
+	// rewrites only its own row.
+	e.pushUndoSpan(targets[0].row, targets[len(targets)-1].row+1)
 	for i, target := range slices.Backward(targets) {
 		e.replaceMatch(target, repls[i])
 	}

@@ -302,12 +302,14 @@ func TestHScrollbarDragScrollsColumns(t *testing.T) {
 	_, y, w, _, _, _, _ := g.hScrollbar()
 
 	// A press away from the bar's row must not start a drag.
-	if g.hScrollbarDrag(tcell.NewEventMouse(g.rect.X+2, y-1, tcell.Button1, tcell.ModNone)) {
+	g.HandleMouse(tcell.NewEventMouse(g.rect.X+2, y-1, tcell.Button1, tcell.ModNone))
+	if g.gestureIs(gridHBar) {
 		t.Fatalf("press off the bar's row started a horizontal scrollbar drag")
 	}
+	g.HandleMouse(tcell.NewEventMouse(g.rect.X+2, y-1, tcell.ButtonNone, tcell.ModNone))
 
 	// A press at the far right of the track scrolls as far as it goes.
-	if !g.hScrollbarDrag(tcell.NewEventMouse(g.rect.X+w-1, y, tcell.Button1, tcell.ModNone)) {
+	if !g.HandleMouse(tcell.NewEventMouse(g.rect.X+w-1, y, tcell.Button1, tcell.ModNone)) {
 		t.Fatalf("press on the bar not consumed")
 	}
 	far := g.scrollCol
@@ -316,7 +318,7 @@ func TestHScrollbarDragScrollsColumns(t *testing.T) {
 	}
 
 	// Still latched: an event off the bar's row keeps controlling scroll.
-	if !g.hScrollbarDrag(tcell.NewEventMouse(g.rect.X, y-3, tcell.Button1, tcell.ModNone)) {
+	if !g.HandleMouse(tcell.NewEventMouse(g.rect.X, y-3, tcell.Button1, tcell.ModNone)) {
 		t.Fatalf("drag off the bar's row not consumed while latched")
 	}
 	if g.scrollCol != 0 {
@@ -324,8 +326,8 @@ func TestHScrollbarDragScrollsColumns(t *testing.T) {
 	}
 
 	g.HandleMouse(tcell.NewEventMouse(g.rect.X, y, tcell.ButtonNone, tcell.ModNone))
-	if g.sbDraggingH {
-		t.Errorf("sbDraggingH still set after the release")
+	if g.gestureZone() != nil {
+		t.Errorf("thumb drag still held after the release")
 	}
 }
 
@@ -352,7 +354,7 @@ func TestHScrollbarDragToEndShowsLastColumn(t *testing.T) {
 		if !ok {
 			t.Fatalf("tall=%v: hScrollbar ok = false, want an overflowing grid", tall)
 		}
-		g.hScrollbarDrag(tcell.NewEventMouse(x+w-1, y, tcell.Button1, tcell.ModNone))
+		g.HandleMouse(tcell.NewEventMouse(x+w-1, y, tcell.Button1, tcell.ModNone))
 		rest := 0
 		for _, cw := range g.colWidths[g.scrollCol:] {
 			rest += cw

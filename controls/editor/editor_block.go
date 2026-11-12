@@ -126,6 +126,20 @@ func (e *Editor) blockDelete() {
 	e.setBlockCaret(top, bot, loCol)
 }
 
+// blockPasteSpan is the row range blockPaste(text) touches, for its undo step:
+// from the first row of the selection or cursor (where the paste starts) down to
+// the last pasted row, or to the end of the buffer when the paste appends rows
+// there, so the growth happens inside it. The pasted rows are counted from the
+// selection's last row: deleting a linear selection first joins its rows into
+// one, so the paste reaches that many rows past it in the pre-edit numbering.
+func (e *Editor) blockPasteSpan(text string) (lo, hi int) {
+	lo, bot := e.cursorRow, e.cursorRow
+	if e.selecting {
+		lo, bot = e.blockRows()
+	}
+	return lo, min(bot+strings.Count(text, "\n")+1, e.doc.Len())
+}
+
 // blockPaste inserts text rectangularly: line i of the pasted text goes into the
 // i'th row below the cursor, all at the same column, appending rows at the end of
 // the buffer if the paste runs past it. This is what a block copy pasted back

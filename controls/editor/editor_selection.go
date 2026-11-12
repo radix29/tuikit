@@ -169,8 +169,8 @@ func (e *Editor) SelectedText() string {
 
 // deleteSelection removes the selected text (if any) and moves the cursor to
 // where the selection started. No-op without a selection. Callers wanting the
-// deletion undoable call pushUndo() first; this doesn't, since every caller does
-// so as part of a larger edit.
+// deletion undoable push a step covering the selection's rows first (editSpan
+// does); this doesn't, since every caller does so as part of a larger edit.
 func (e *Editor) deleteSelection() {
 	if !e.HasSelection() {
 		return
@@ -214,7 +214,7 @@ func (e *Editor) Cut() string {
 		return ""
 	}
 	text := e.SelectedText()
-	e.pushUndo()
+	e.pushUndoLocal() // deleteSelection stays inside the selection's rows
 	e.deleteSelection()
 	e.clampCursor()
 	e.ensureCursorVisible()
@@ -238,25 +238,53 @@ func (e *Editor) Paste(text string) {
 		return
 	}
 	e.closeCompletion()
-	e.pushUndo()
 	if e.blockClip != "" && text == e.blockClip {
+		e.pushUndoSpan(e.blockPasteSpan(text))
 		e.blockPaste(text)
 		e.clampCursor()
 		e.ensureCursorVisible()
 		return
 	}
+	// The selection is deleted inside its own rows and the text then goes in at
+	// its start, growing the document from that row: editSpan covers both.
+	e.pushUndoLocal()
 	if e.HasSelection() {
 		e.deleteSelection()
 	}
-	lines := strings.Split(strings.ReplaceAll(e.expandTabs(text), "\r\n", "\n"), "\n")
-	for i, line := range lines {
-		if i > 0 {
-			e.insertNewline()
-		}
-		for _, r := range line {
-			e.insertRune(r)
-		}
-	}
+	e.insertText(strings.Split(strings.ReplaceAll(e.expandTabs(text), "\r\n", "\n"), "\n"))
 	e.clampCursor()
 	e.ensureCursorVisible()
+}
+
+// insertText puts parts (the text split at its newlines, so at least one
+// element) in at the cursor with one replaceRange and leaves the cursor after
+// the last of them. The first part joins the text left of the cursor, the last
+// the text right of it.
+//
+// One splice, not insertRune per rune and insertNewline per line: those copy the
+// cursor's line per rune and splice the document per line, so a 100,000-char
+// line took 8.7 s and 5,000 lines atop a 50,000-line script 1.9 s, all on the
+// UI goroutine.
+func (e *Editor) insertText(parts []string) {
+	if e.cursorRow >= e.doc.Len() {
+		e.doc.edit(func(lines [][]rune) [][]rune { return append(lines, []rune{}) })
+	}
+	line := e.doc.Line(e.cursorRow)
+	left, right := line[:e.cursorCol], line[e.cursorCol:]
+	with := make([][]rune, len(parts))
+	for i, p := range parts {
+		with[i] = []rune(p)
+	}
+	last := len(with) - 1
+	endCol := len(with[last])
+	if last == 0 {
+		endCol += len(left)
+	}
+	// Fresh slices for the two joined ends: left and right alias the old line,
+	// which an undo step may hold.
+	with[0] = append(append(make([]rune, 0, len(left)+len(with[0])), left...), with[0]...)
+	with[last] = append(with[last][:len(with[last]):len(with[last])], right...)
+	e.doc.replaceRange(e.cursorRow, 1, with)
+	e.cursorRow += last
+	e.cursorCol = endCol
 }

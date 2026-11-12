@@ -119,11 +119,10 @@ func (g *DataGrid) gridContextMenuItems() []MenuItem {
 // ShowValue does what the context menu's "Show Value" does for the selected
 // cell, for a host binding it to another gesture (an OnRowDoubleClick, say). It
 // ends the mouse press first: called from inside a press, the release then goes
-// to the popup or the host's tab instead, and the press latches would survive
-// to make the grid's next click a drag continuation that pairs with nothing.
+// to the popup or the host's tab instead, and the held gesture would survive to
+// take the grid's next click for a drag continuation that pairs with nothing.
 func (g *DataGrid) ShowValue() {
-	g.mouseDragging = false
-	g.rowPressed = false
+	g.gesture.Release()
 	g.openViewer()
 }
 

@@ -20,6 +20,19 @@ type KeyHandler interface {
 // MouseHandler takes a mouse event. HandleMouse returns false for an event
 // outside the control's bounds that it did not latch (a drag it started keeps
 // control off its edge), so a host can offer the event to whatever is beneath.
+// Inside the bounds, one rule for every control:
+//
+//   - Plain motion (ButtonNone) is never consumed: the control may track hover
+//     from it, but returns true only for a release that ended a gesture it held,
+//     or while it has an overlay open. A host reads true as "claimed", and a
+//     claimed hover moved a property sheet's keyboard focus onto its page list.
+//     A host moves focus on a press only.
+//   - A wheel tick over the control is consumed even when it cannot scroll
+//     further, so it never scrolls whatever lies beneath.
+//   - Any press outside an open menu dismisses the menu. A right-click then
+//     falls through (false), so the host can open a new menu where it landed;
+//     any other press is consumed, and a wheel tick is consumed with the menu
+//     left open.
 type MouseHandler interface {
 	HandleMouse(ev *tcell.EventMouse) bool
 }

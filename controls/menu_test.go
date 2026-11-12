@@ -5,6 +5,7 @@ import (
 
 	"github.com/gdamore/tcell/v3"
 	"github.com/radix29/tuikit/core"
+	"github.com/radix29/tuikit/tuikittest"
 )
 
 func newTestMenuBar() *MenuBar {
@@ -360,5 +361,51 @@ func TestMenuBarHoverClearsOffTheBarRow(t *testing.T) {
 		if mb.hoverMenu != -1 {
 			t.Errorf("hoverMenu after moving to %v = %d, want -1", pos, mb.hoverMenu)
 		}
+	}
+}
+
+// TestMenuBarSetMenusWithFewerMenusClosesAGoneDropdown: openMenu was left past
+// the end, and the next key indexed menus[openMenu].
+func TestMenuBarSetMenusWithFewerMenusClosesAGoneDropdown(t *testing.T) {
+	mb := newTestMenuBar()
+	mb.Open()
+	mb.HandleKey(tcell.NewEventKey(tcell.KeyRight, "", tcell.ModNone)) // Edit
+	if mb.openMenu != 1 {
+		t.Fatalf("openMenu = %d, want 1 (Edit)", mb.openMenu)
+	}
+	mb.SetMenus([]Menu{{Label: "File", Items: []MenuItem{{Label: "Open"}}}})
+	if mb.OverlayActive() {
+		t.Fatal("dropdown still open after its menu was removed")
+	}
+	mb.HandleKey(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone)) // must not panic
+	mb.DrawOverlay(tuikittest.NewScreen(40, 10))
+}
+
+// TestMenuBarSetMenusClampsTheHighlight: a dropdown that survives keeps a
+// highlight inside its new item list.
+func TestMenuBarSetMenusClampsTheHighlight(t *testing.T) {
+	mb := newTestMenuBar()
+	mb.Open()
+	mb.HandleKey(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone)) // Exit, row 1
+	if mb.selectedItem != 1 {
+		t.Fatalf("selectedItem = %d, want 1", mb.selectedItem)
+	}
+	mb.SetMenus([]Menu{{Label: "File", Items: []MenuItem{{Label: "Open"}}}})
+	if !mb.OverlayActive() || mb.selectedItem != 0 {
+		t.Fatalf("open = %v, selectedItem = %d; want open on row 0", mb.OverlayActive(), mb.selectedItem)
+	}
+	mb.DrawOverlay(tuikittest.NewScreen(40, 10))
+	mb.HandleKey(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)) // must not panic
+}
+
+// TestMenuBarOnBeforeOpenRemovingTheClickedMenuDoesNotPanic: the hook may
+// SetMenus with fewer menus before the clicked one is read.
+func TestMenuBarOnBeforeOpenRemovingTheClickedMenuDoesNotPanic(t *testing.T) {
+	mb := newTestMenuBar()
+	mb.OnBeforeOpen = func() { mb.SetMenus([]Menu{{Label: "File"}}) }
+	x := 1 + core.DisplayWidth(" File ") + 1 // inside " Edit "
+	mb.HandleMouse(tcell.NewEventMouse(x, 0, tcell.Button1, tcell.ModNone))
+	if mb.OverlayActive() {
+		t.Fatal("a dropdown opened for a menu the hook removed")
 	}
 }

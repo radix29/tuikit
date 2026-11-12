@@ -200,3 +200,33 @@ func benchmarkEditorTypeDraw20k(b *testing.B, wrap bool) {
 
 func BenchmarkEditorTypeWrapped20k(b *testing.B)   { benchmarkEditorTypeDraw20k(b, true) }
 func BenchmarkEditorTypeUnwrapped20k(b *testing.B) { benchmarkEditorTypeDraw20k(b, false) }
+
+// BenchmarkEditorPasteLongLine and BenchmarkEditorPasteManyLines are BG6's
+// measurement: Paste used insertRune per rune and insertNewline per line, so a
+// 100,000-char line took 8.7 s and 5,000 lines at the top of a 50,000-line
+// script 1.9 s. Each iteration pastes into a fresh copy of the same document so
+// the cost does not grow with b.N.
+func BenchmarkEditorPasteLongLine(b *testing.B) {
+	text := strings.Repeat("x", 100000)
+	for b.Loop() {
+		b.StopTimer()
+		e := NewEditor(nil)
+		e.SetText("SELECT 1")
+		e.SetBounds(0, 0, 100, 40)
+		e.cursorCol = 6
+		b.StartTimer()
+		e.Paste(text)
+	}
+}
+
+func BenchmarkEditorPasteManyLines(b *testing.B) {
+	script, text := benchScript(50000), benchScript(5000)
+	for b.Loop() {
+		b.StopTimer()
+		e := NewEditor(nil)
+		e.SetText(script)
+		e.SetBounds(0, 0, 100, 40)
+		b.StartTimer()
+		e.Paste(text)
+	}
+}

@@ -44,8 +44,8 @@ func TestColumnResizeDragWidensLeftColumn(t *testing.T) {
 	if g.colWidths[0] != 25 {
 		t.Errorf("colWidths[0] after dragging +15 = %d, want 25", g.colWidths[0])
 	}
-	if g.colResizing {
-		t.Error("colResizing still latched after release")
+	if g.gestureZone() != nil {
+		t.Error("resize gesture still held after release")
 	}
 }
 
@@ -140,7 +140,7 @@ func TestColumnResizeLastColumnBeatsFill(t *testing.T) {
 func TestColumnResizeIgnoresDataRows(t *testing.T) {
 	g := newResizeTestGrid()
 	// y 2 is the first data row (header, separator line, then data).
-	if g.HandleMouse(tcell.NewEventMouse(9, 2, tcell.Button1, tcell.ModNone)); g.colResizing {
+	if g.HandleMouse(tcell.NewEventMouse(9, 2, tcell.Button1, tcell.ModNone)); g.gestureIs(gridResize) {
 		t.Error("press on a data row's separator started a resize")
 	}
 	g.HandleMouse(tcell.NewEventMouse(20, 2, tcell.Button1, tcell.ModNone))

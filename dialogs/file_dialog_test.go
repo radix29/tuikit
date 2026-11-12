@@ -434,7 +434,13 @@ func TestFileDialogDragOutOfPathFieldKeepsExtending(t *testing.T) {
 	if d.drag.Field() != nil {
 		t.Error("the release left the gesture latched")
 	}
-	d.HandleMouse(tcell.NewEventMouse(lr.X+1, lr.Y+1, tcell.Button1, tcell.ModNone))
+	// A row other than the selected one: a press on the selected row selects
+	// nothing new (and used to open it, BG9, which is how this passed before).
+	row := 0
+	if selBefore == d.scroll {
+		row = 1
+	}
+	d.HandleMouse(tcell.NewEventMouse(lr.X+1, lr.Y+row, tcell.Button1, tcell.ModNone))
 	if d.sel == selBefore {
 		t.Error("a press in the list after the release did not select a row")
 	}
@@ -469,5 +475,70 @@ func TestFileDialogShowClearsTheDragLatch(t *testing.T) {
 	d.ShowOpen("Open", dir, func(string) {})
 	if d.drag.Field() != nil {
 		t.Error("Show left a drag latch armed from the previous showing")
+	}
+}
+
+// BG9: one click on a row only selects it, even the selected one; a
+// double-click opens it. The listing opens with ".." selected, so a click there
+// used to navigate up.
+func TestFileDialogClickSelectsDoubleClickOpens(t *testing.T) {
+	d, _ := newPlacedFileDialog(t)
+	dir := d.dir
+	lr := d.listRect()
+	d.sel = 0
+	at := func(i int) int { return lr.Y + i - d.scroll }
+
+	click := func(i int) {
+		d.HandleMouse(tcell.NewEventMouse(lr.X+1, at(i), tcell.Button1, tcell.ModNone))
+		d.HandleMouse(tcell.NewEventMouse(lr.X+1, at(i), tcell.ButtonNone, tcell.ModNone))
+	}
+	if d.entries[0].Name != ".." {
+		t.Fatalf("entries[0] = %q, want \"..\" — test premise is wrong", d.entries[0].Name)
+	}
+	click(0)
+	if d.dir != dir {
+		t.Fatalf("one click on the selected \"..\" navigated to %q", d.dir)
+	}
+	// Two clicks on different rows are not a double-click.
+	click(1)
+	click(0)
+	if d.dir != dir || d.sel != 0 {
+		t.Fatalf("clicks on two rows: dir %q sel %d, want %q and 0", d.dir, d.sel, dir)
+	}
+	click(0)
+	if d.dir == dir {
+		t.Fatal("a double-click on \"..\" did not navigate up")
+	}
+}
+
+// BG9: a press on the old listing's row and one on the new listing's same row
+// are not a double-click: click a folder, open it with Enter, click again.
+func TestFileDialogClickDoesNotPairAcrossListings(t *testing.T) {
+	d, _ := newPlacedFileDialog(t)
+	lr := d.listRect()
+	sub := -1
+	for i, e := range d.entries {
+		if e.IsDir && e.Name != ".." {
+			sub = i
+			break
+		}
+	}
+	if sub < 0 || sub-d.scroll >= lr.H {
+		t.Fatal("no visible subfolder — test premise is wrong")
+	}
+	y := lr.Y + sub - d.scroll
+	click := func() {
+		d.HandleMouse(tcell.NewEventMouse(lr.X+1, y, tcell.Button1, tcell.ModNone))
+		d.HandleMouse(tcell.NewEventMouse(lr.X+1, y, tcell.ButtonNone, tcell.ModNone))
+	}
+	click()
+	d.HandleKey(tuikittest.Key(tcell.KeyEnter))
+	opened := d.dir
+	if sub >= len(d.entries) || !d.entries[sub].IsDir {
+		t.Fatal("the opened folder has no subfolder on the same row — test premise is wrong")
+	}
+	click()
+	if d.dir != opened {
+		t.Errorf("a click after Enter opened %q: it paired with the old listing's click", d.dir)
 	}
 }

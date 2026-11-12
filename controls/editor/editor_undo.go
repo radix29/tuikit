@@ -15,8 +15,8 @@ import (
 // where the cursor was. bytes is the approximate heap cost of old, computed once
 // so trimUndo never walks it again.
 //
-// A step is a delta rather than a whole-document snapshot because pushUndo runs on
-// every keystroke: copying the buffer costs 3.2 ms and 5 MB per character in a
+// A step is a delta rather than a whole-document snapshot because a step is pushed
+// on every keystroke: copying the buffer costs 3.2 ms and 5 MB per character in a
 // 20,000-line script to record a one-line change.
 //
 // newLen isn't knowable when the step is pushed (the edit hasn't run), so the
@@ -84,11 +84,6 @@ const maxUndoBytes = 64 << 20
 // counted per line so a document of many short lines isn't measured as nearly
 // free.
 const sliceHeaderBytes = 24
-
-// pushUndo records an undo step covering the whole document: the conservative
-// form, for an edit whose reach isn't a row range the caller knows in advance.
-// Per-keystroke paths use pushUndoLocal.
-func (e *Editor) pushUndo() { e.pushUndoSpan(0, e.doc.Len()) }
 
 // pushUndoLocal records an undo step covering only the rows a keystroke-sized
 // edit can reach; see editSpan.

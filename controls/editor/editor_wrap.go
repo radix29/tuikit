@@ -4,7 +4,6 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/gdamore/tcell/v3"
 	"github.com/radix29/tuikit/core"
 )
 
@@ -226,7 +225,7 @@ func (e *Editor) moveVisualRows(delta int) {
 
 // wrappedPosAt maps screen (mx, my) to the document position under it in wrap
 // mode, where my picks a visual row of vls rather than a logical line. Shared by
-// handleMouseWrapped and SetCursorFromScreen. A click past the end of a non-final
+// HandleMouse's press, dragText and SetCursorFromScreen. A click past the end of a non-final
 // row stops one short of it, as moveVisualRows does, or the caret would show on
 // the row below the click.
 func (e *Editor) wrappedPosAt(vls []visualLine, mx, my, contentX int) (row, col int) {
@@ -248,25 +247,4 @@ func clampToVisualRow(vls []visualLine, i, col int) int {
 		return min(col, max(vl.start, vl.end-1))
 	}
 	return min(col, vl.end)
-}
-
-// handleMouseWrapped implements HandleMouse's Button1 click/drag and wheel-scroll
-// for word-wrap mode, where scrollRow and the mouse's Y map to visual rows (vls,
-// from buildVisualLines) rather than logical lines. vls is precomputed by
-// HandleMouse, which needs it for the scrollbar hit-test. Once (row, col) is
-// derived, the press goes to applyMousePress, shared with the unwrapped branch.
-func (e *Editor) handleMouseWrapped(ev *tcell.EventMouse, mx, my, contentX int, vls []visualLine) bool {
-	if ev.Buttons() == tcell.Button1 {
-		row, col := e.wrappedPosAt(vls, mx, my, contentX)
-		return e.applyMousePress(row, col, ev)
-	}
-	if ev.Buttons() == tcell.WheelUp && e.scrollRow > 0 {
-		e.scrollRow--
-		return true
-	}
-	if ev.Buttons() == tcell.WheelDown && e.scrollRow < len(vls)-1 {
-		e.scrollRow++
-		return true
-	}
-	return false
 }

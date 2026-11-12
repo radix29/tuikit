@@ -205,13 +205,35 @@ func (c *Buffer) setRune(x, y int, r rune, style tcell.Style) {
 
 // write stores one composed cell, reserving the trailing cell of a wide
 // grapheme so a later Get or Blit doesn't emit the same glyph twice.
+//
+// A write over part of an existing wide grapheme blanks the part it leaves
+// behind, as tcell does. Over the trailing half, the lead would keep width 2
+// and Blit would step over the new cell; over the lead, the trailing half would
+// stay width 0 and Blit would skip it, letting stale screen content show.
 func (c *Buffer) write(x, y int, cell bufferCell) {
 	if x+cell.width > c.w {
 		// A wide grapheme in the last column has no room for its second half; tcell
 		// substitutes a space and so does this.
 		cell = bufferCell{primary: ' ', style: cell.style, width: 1}
 	}
-	i := y*c.w + x
+	row := y * c.w
+	i := row + x
+	// Left edge: landing on a trailing cell orphans the lead before it (and any
+	// trailing cells between them).
+	if c.cells[i].width == 0 {
+		for j := i - 1; j >= row; j-- {
+			lead := c.cells[j].width != 0
+			c.cells[j] = bufferCell{primary: ' ', style: c.cells[j].style, width: 1}
+			if lead {
+				break
+			}
+		}
+	}
+	// Right edge: trailing cells past the new cell belonged to a grapheme it
+	// overwrote the lead (or an earlier trailing cell) of.
+	for j := i + cell.width; j < row+c.w && c.cells[j].width == 0; j++ {
+		c.cells[j] = bufferCell{primary: ' ', style: c.cells[j].style, width: 1}
+	}
 	c.cells[i] = cell
 	for k := 1; k < cell.width; k++ {
 		c.cells[i+k] = bufferCell{style: cell.style}

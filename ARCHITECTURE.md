@@ -45,9 +45,10 @@ Everything below follows from that.
 Any widget acting on `Button1` (toolbar button, menu label, tree toggle)
 holds a `core.PressLatch`: set on the press, cleared on the matching
 `ButtonNone`, or the action refires on every motion while the button is held.
-It guards only a resend over the widget that armed it. The widgets with a
-selection drag (`Editor`, `DataGrid`, `InputField`) hold a hand-rolled
-`mouseDragging` bool for the same purpose.
+It guards only a resend over the widget that armed it. `InputField` holds a
+hand-rolled `mouseDragging` bool for the same purpose; the widgets with
+several drag zones hold one `core.Gesture` instead (§ One owner per press
+inside a widget).
 
 ### The dialog button row
 
@@ -91,6 +92,29 @@ Two consequences:
 - A host that opens a dialog from a press (a context-menu item) drops the
   held `Button1` when its modal layer changes mid-gesture; otherwise
   twitching before release fires whatever dialog button is under the pointer.
+
+### One owner per press inside a widget
+
+A widget with several drag zones is a router too. `DataGrid` (cells, row
+header, Ctrl+mark, both scrollbars, column separator, inert header/status),
+`Editor` (text, both scrollbars, completion item and scrollbar), `TreeView`
+(an acted-on row or title button, both scrollbars) and `propsheet.Form` (a
+row's index, its scrollbar) each hold one `core.Gesture` over their own zone
+type. Zones are hit-tested only on the fresh press; every later `Button1`
+goes to the owner, routed ahead of the bounds test, and a release anywhere
+ends it. One latch per zone, each branch testing only some of the others,
+let a cell-selection drag resize a column, grab a scrollbar or re-sort on a
+header. A press that acted or did nothing still arms a zone whose route does
+nothing, so a drag from it never reaches a cell as a fresh press. Scrollbars
+use `core.OnScrollbar`/`OnScrollbarH` for the press and
+`ScrollOffsetForDrag` for every event; `HandleScrollbarDrag` stays for
+widgets with a single bool latch.
+
+A selection drag (DataGrid cells and row header, Editor text, both wrap
+modes) that leaves the content clamps the pointer to the row or column just
+beyond the view and scrolls one toward it per motion event: tuikit has no
+timer, so a pointer resting outside does not keep scrolling. A toggle grid's
+drag paints only cells under the pointer and never scrolls.
 
 ### dialogs.Stack: releases go to every open dialog
 
@@ -206,6 +230,14 @@ A hover hint (`Toolbar`, `TreeView`'s title button) is an `Overlay` whose
   `DataGrid` answers `true` to every arrow, so `propsheet.GridRow` snapshots
   `SelectedCell`/`ScrollCol` around the key and reports what moved: detect
   movement, never predict it.
+- **Mouse return values follow one rule** (`core.MouseHandler`'s doc):
+  plain motion is never claimed (hover may be tracked, but `true` only for a
+  release ending the control's own gesture, or with an overlay open); a wheel
+  tick over a control is claimed even at its limit; any press outside an open
+  menu dismisses it, a right-click then falling through so the host can open
+  the next menu there. A host moves keyboard focus on a *press* only, never
+  on a claimed hover or wheel: `PropertySheet` once moved focus to its page
+  list whenever the pointer crossed it.
 - **`SetBounds` does nothing when the rect hasn't changed** — hosts lay out in
   `Draw`, every frame; a `ListBox` re-running `ensureVisible` there snapped
   the wheel back to the selection. A `DataGrid` host that changes cells in

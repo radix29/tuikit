@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gdamore/tcell/v3"
 	"github.com/radix29/tuikit/tuikittest"
 )
 
@@ -415,5 +416,41 @@ func TestFileDialogLeavesAnUnknownSizeAndDateBlank(t *testing.T) {
 	}
 	if got := row("empty.bak"); strings.Contains(got, "0001-01-01") {
 		t.Errorf("a file with no timestamp rendered %q; want no date", got)
+	}
+}
+
+// blockingFS is fakeWindowsFS claiming its calls block, so FileDialog paints
+// its "Listing ..." frame through showBusy.
+type blockingFS struct{ *fakeWindowsFS }
+
+func (blockingFS) Blocking() bool { return true }
+
+// shownScreen is a test screen whose Show (showBusy flushes) does nothing.
+type shownScreen struct{ *tuikittest.Screen }
+
+func (shownScreen) Show() {}
+
+// BG13: showBusy paints outside Stack.Draw, so it must clip as Stack.Draw does;
+// on a plain screen a clamped dialog's content spilled past its box.
+func TestFileDialogBusyFrameStaysInsideAClampedDialog(t *testing.T) {
+	scr := tuikittest.NewScreen(30, 12)
+	scr.Fill('.', tcell.StyleDefault)
+	d := NewFileDialog(shownScreen{scr})
+	d.ShowOpenOn(blockingFS{newFakeWindowsFS()}, "Select Backup File", `C:\Backup\`, func(string) {})
+	r := d.Rect()
+	if !d.clamped() {
+		t.Fatal("the dialog is not clamped — test premise is wrong")
+	}
+	// The content is laid out for the requested size, so unclipped it runs over
+	// the right and bottom borders.
+	for y := r.Y + 1; y < r.Bottom()-1; y++ {
+		if got := scr.RuneAt(r.Right()-1, y); got != '│' {
+			t.Errorf("right border at row %d is %q, the busy frame drew over it\n%s", y, got, scr.Snapshot())
+		}
+	}
+	for x := r.X + 1; x < r.Right()-1; x++ {
+		if got := scr.RuneAt(x, r.Bottom()-1); got != '─' {
+			t.Fatalf("bottom border at column %d is %q, the busy frame drew over it\n%s", x, got, scr.Snapshot())
+		}
 	}
 }

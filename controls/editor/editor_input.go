@@ -335,81 +335,127 @@ func (e *Editor) HandleKey(ev *tcell.EventKey) bool {
 	return true
 }
 
-// applyMousePress is the Button1 body both mouse paths share: HandleMouse's
-// unwrapped branch and handleMouseWrapped differ only in how they derive (row,
-// col) (a clamp plus runeColAtScreenX against a physical row, versus a
-// visual-line lookup plus RuneIndexAtColumn against a segment). One copy stops
-// them drifting. Always reports true: a Button1 press over the content area is
-// handled.
-func (e *Editor) applyMousePress(row, col int, ev *tcell.EventMouse) bool {
-	if !e.mouseDragging {
-		// Fresh click: reposition the cursor. Without Shift, arm a new anchor here;
-		// HasSelection() stays false until the drag moves off this point. With Shift,
-		// keep the active anchor (or the pre-click cursor) and move only the cursor,
-		// the usual click-to-extend. Alt on the press picks block vs. linear selection
-		// for the whole drag, best-effort since terminals vary in reporting it, and
-		// never in wrap mode, which breaks the fixed rune columns a block selection
-		// assumes, so the press clears it there rather than leaving what the previous
-		// mode armed.
-		e.mouseDragging = true
-		// A second unmodified press on the same spot selects the word under it.
-		// mouseDragging is latched above, so resends while held land in the drag
-		// branch and extend from the word. pressIsDouble runs for every fresh press,
-		// modified or not, so a Shift- or Alt-clicked press still counts as "the
-		// previous press"; the modifier test lives inside it, not in an && here that
-		// would discard the press before consulting it.
-		if e.pressIsDouble(row, col, ev.When(), ev.Modifiers()) {
-			if e.OnDoubleClick == nil || !e.OnDoubleClick(row) {
-				e.selectWordAt(row, col)
-			}
-			return true
+// editorZone is the part of the editor a Button1 press began in, which owns
+// every event of the gesture until the release (Editor.gesture).
+type editorZone int
+
+const (
+	// editorText is a text selection drag: the press placed the cursor and armed
+	// the anchor, the drag moves the cursor.
+	editorText editorZone = iota
+	// editorVBar and editorHBar drag the scrollbar thumbs.
+	editorVBar
+	editorHBar
+	// editorPopupItem is a press on a completion item, acted on by the press: the
+	// resends while held must not commit again.
+	editorPopupItem
+	// editorPopupBar drags the completion popup's scrollbar thumb.
+	editorPopupBar
+)
+
+// pressText is a fresh Button1 press on the text at (row, col), shared by both
+// wrap modes, which differ only in how they derive (row, col) (a clamp plus
+// runeColAtScreenX against a physical row, versus a visual-line lookup plus
+// RuneIndexAtColumn against a segment).
+//
+// It repositions the cursor. Without Shift, it arms a new anchor here;
+// HasSelection() stays false until the drag moves off this point. With Shift,
+// it keeps the active anchor (or the pre-click cursor) and moves only the
+// cursor, the usual click-to-extend. Alt on the press picks block vs. linear
+// selection for the whole drag, best-effort since terminals vary in reporting
+// it, and never in wrap mode, which breaks the fixed rune columns a block
+// selection assumes, so the press clears it there rather than leaving what the
+// previous mode armed.
+func (e *Editor) pressText(row, col int, ev *tcell.EventMouse) {
+	// A second unmodified press on the same spot selects the word under it. The
+	// resends while held are the gesture's (dragText), so they extend from the
+	// word. pressIsDouble runs for every fresh press, modified or not, so a Shift-
+	// or Alt-clicked press still counts as "the previous press"; the modifier test
+	// lives inside it, not in an && here that would discard the press before
+	// consulting it.
+	if e.pressIsDouble(row, col, ev.When(), ev.Modifiers()) {
+		if e.OnDoubleClick == nil || !e.OnDoubleClick(row) {
+			e.selectWordAt(row, col)
 		}
-		if ev.Modifiers()&tcell.ModShift != 0 {
-			if !e.selecting {
-				e.selAnchorRow, e.selAnchorCol = e.cursorRow, e.cursorCol
-			}
-		} else {
-			e.selAnchorRow, e.selAnchorCol = row, col
-		}
-		e.selecting = true
-		e.selBlock = !e.wrapMode && ev.Modifiers()&tcell.ModAlt != 0
-		e.cursorRow, e.cursorCol = row, col
-	} else {
-		// Continued drag: move the cursor, anchor and mode stay fixed.
-		e.cursorRow, e.cursorCol = row, col
+		return
 	}
+	if ev.Modifiers()&tcell.ModShift != 0 {
+		if !e.selecting {
+			e.selAnchorRow, e.selAnchorCol = e.cursorRow, e.cursorCol
+		}
+	} else {
+		e.selAnchorRow, e.selAnchorCol = row, col
+	}
+	e.selecting = true
+	e.selBlock = !e.wrapMode && ev.Modifiers()&tcell.ModAlt != 0
+	e.cursorRow, e.cursorCol = row, col
 	e.desiredCol = core.ColumnOfRune(e.doc.Line(row), col)
-	return true
+}
+
+// dragText continues a text selection at (mx, my): the cursor moves, anchor
+// and mode stay as the press set them. Past an edge the pointer is clamped to
+// the row (and, unwrapped, the column) just outside the view, and
+// ensureCursorVisible scrolls one toward it per motion event (tuikit has no
+// timer to scroll while the pointer rests). The horizontal bar's row counts as
+// below the text.
+func (e *Editor) dragText(mx, my int) {
+	h := e.contentH()
+	if h <= 0 || e.doc.Len() == 0 {
+		return
+	}
+	contentX := e.rect.X + e.gutterWidth()
+	cy := core.Clamp(my, e.rect.Y-1, e.rect.Y+h)
+	outside := cy != my || cy < e.rect.Y || cy >= e.rect.Y+h
+	var row, col int
+	if e.wrapMode {
+		row, col = e.wrappedPosAt(e.buildVisualLines(e.wrapWidth()), mx, cy, contentX)
+	} else {
+		w := e.rect.W - e.gutterWidth()
+		dx := core.Clamp(mx-contentX, -1, max(0, w))
+		outside = outside || dx < 0 || dx >= w
+		row = core.Clamp(e.scrollRow+(cy-e.rect.Y), 0, e.doc.Len()-1)
+		col = e.runeColAtScreenX(row, dx)
+	}
+	e.cursorRow, e.cursorCol = row, col
+	e.desiredCol = core.ColumnOfRune(e.doc.Line(row), col)
+	if outside {
+		e.ensureCursorVisible()
+	}
 }
 
 // HandleMouse handles mouse events.
 func (e *Editor) HandleMouse(ev *tcell.EventMouse) bool {
+	// A release ends the gesture wherever it lands, so a drag ending outside the
+	// editor leaves nothing latched.
+	if ev.Buttons() == tcell.ButtonNone {
+		_, held := e.gesture.Owner()
+		e.gesture.Release()
+		return held
+	}
+	// Ahead of the popup and the bounds test: a held drag keeps its zone wherever
+	// the pointer drifts, so a selection dragged past the last line never lands on
+	// the horizontal bar, and one dragged off the editor keeps scrolling.
+	if e.gesture.Route(ev, e.routeDrag) {
+		return true
+	}
 	// As with HandleKey's completionOpen check: the popup floats independently of the
 	// editor's rect, so it gets first refusal before position-based routing can
 	// misread a click meant for it.
 	if e.completionOpen && e.handleCompletionMouse(ev) {
 		return true
 	}
-	// Always process a release first, whatever its position, so a drag ending outside
-	// the editor's bounds terminates cleanly rather than leaving mouseDragging stuck.
-	if ev.Buttons() == tcell.ButtonNone {
-		wasDragging := e.mouseDragging || e.sbDragging || e.sbDraggingX
-		e.mouseDragging = false
-		e.sbDragging = false
-		e.sbDraggingX = false
-		return wasDragging
-	}
-
-	// A horizontal-scrollbar drag keeps control once started even after the pointer
-	// leaves the editor, so it is checked before the bounds test (unlike the vertical
-	// bar, whose track spans the full content height). As in DataGrid.
-	if e.hScrollbarDrag(ev) {
-		return true
-	}
 
 	mx, my := ev.Position()
+	if !e.rect.Contains(mx, my) {
+		return false
+	}
+	// The wheel scrolls from the gutter too, and is consumed even at a limit
+	// (core.MouseHandler), in both wrap modes.
+	if e.handleWheel(ev) {
+		return true
+	}
 	contentX := e.rect.X + e.gutterWidth()
-	if mx < contentX || !e.rect.Contains(mx, my) {
+	if mx < contentX {
 		return false
 	}
 	// Right-click (Button2 is Secondary in tcell v3): hand off to the app layer for a
@@ -421,61 +467,118 @@ func (e *Editor) HandleMouse(ev *tcell.EventMouse) bool {
 		return true
 	}
 
-	// Scrollbar drag/click outranks text-click handling: the bar is drawn over the
-	// rightmost content column and would read as a click positioning the cursor at
-	// that line's end. total mirrors what drawScrollbar passed to core.DrawScrollbar
-	// (visual rows in wrap mode, logical lines otherwise). handleMouseWrapped reuses
-	// vls below rather than recomputing the same O(document) slice.
+	if ev.Buttons() != tcell.Button1 {
+		return false
+	}
+	// Scrollbar presses outrank text-click handling: the vertical bar is drawn over
+	// the rightmost content column and would read as a click positioning the cursor
+	// at that line's end. total mirrors what drawScrollbar passed to
+	// core.DrawScrollbar (visual rows in wrap mode, logical lines otherwise).
+	// wrappedPosAt reuses vls below rather than recomputing the same O(document)
+	// slice.
+	if x, y, w, total, _, ok := e.hScrollbar(); ok && core.OnScrollbarH(mx, my, x, y, w, total) {
+		e.dragHScrollbar(mx)
+		e.gesture.Arm(ev, editorHBar)
+		return true
+	}
 	var vls []visualLine
-	haveVLS := false
-	if ev.Buttons() == tcell.Button1 {
-		total := e.doc.Len()
-		if e.wrapMode {
-			vls = e.buildVisualLines(e.wrapWidth())
-			haveVLS = true
-			total = len(vls)
-		}
-		if core.HandleScrollbarDrag(ev, e.rect.Right()-1, e.rect.Y, e.contentH(), total, &e.sbDragging, &e.scrollRow) {
-			return true
-		}
-	}
-
+	total := e.doc.Len()
 	if e.wrapMode {
-		if !haveVLS {
-			vls = e.buildVisualLines(e.wrapWidth())
-		}
-		return e.handleMouseWrapped(ev, mx, my, contentX, vls)
+		vls = e.buildVisualLines(e.wrapWidth())
+		total = len(vls)
 	}
-	if ev.Buttons() == tcell.Button1 {
-		row := core.Clamp(e.scrollRow+min(my-e.rect.Y, e.contentH()-1), 0, e.doc.Len()-1)
-		return e.applyMousePress(row, e.runeColAtScreenX(row, mx-contentX), ev)
+	if core.OnScrollbar(mx, my, e.rect.Right()-1, e.rect.Y, e.contentH(), total) {
+		e.dragVScrollbar(my)
+		e.gesture.Arm(ev, editorVBar)
+		return true
 	}
+	var row, col int
+	if e.wrapMode {
+		row, col = e.wrappedPosAt(vls, mx, my, contentX)
+	} else {
+		row = core.Clamp(e.scrollRow+min(my-e.rect.Y, e.contentH()-1), 0, e.doc.Len()-1)
+		col = e.runeColAtScreenX(row, mx-contentX)
+	}
+	e.pressText(row, col, ev)
+	e.gesture.Arm(ev, editorText)
+	return true
+}
+
+// routeDrag delivers a held Button1 to the zone its press began in.
+func (e *Editor) routeDrag(ev *tcell.EventMouse, z editorZone) {
+	mx, my := ev.Position()
+	switch z {
+	case editorText:
+		e.dragText(mx, my)
+	case editorVBar:
+		e.dragVScrollbar(my)
+	case editorHBar:
+		e.dragHScrollbar(mx)
+	case editorPopupBar:
+		e.dragCompletionScrollbar(my)
+	}
+}
+
+// dragVScrollbar points the view at the track position of screen row my. The
+// track counts what scrollRow counts: visual rows wrapped, logical lines
+// otherwise.
+func (e *Editor) dragVScrollbar(my int) {
+	if h, total := e.contentH(), e.scrollRows(); h > 0 && total > h {
+		e.scrollRow = core.ScrollOffsetForDrag(my-e.rect.Y, h, total, h)
+	}
+}
+
+// dragHScrollbar points the view at the track position of screen column mx.
+// Unlike DataGrid's the plain core math serves: the track's width is the
+// visible count, both in rune columns.
+func (e *Editor) dragHScrollbar(mx int) {
+	if x, _, w, total, _, ok := e.hScrollbar(); ok {
+		e.scrollCol = core.ScrollOffsetForDrag(mx-x, w, total, w)
+	}
+}
+
+// handleWheel scrolls for a wheel event and reports whether ev was one. The
+// vertical step counts logical lines unwrapped and visual rows wrapped, which is
+// what scrollRow counts in each mode.
+func (e *Editor) handleWheel(ev *tcell.EventMouse) bool {
+	shift := ev.Modifiers()&tcell.ModShift != 0
 	switch ev.Buttons() {
 	case tcell.WheelUp:
 		// Shift+wheel is the desktop convention for horizontal scroll, and some terminals
 		// report it that way rather than as WheelLeft/WheelRight; honour both. As in
-		// DataGrid.
-		if ev.Modifiers()&tcell.ModShift != 0 {
+		// DataGrid. Wrapped text has no horizontal scroll.
+		if shift && !e.wrapMode {
 			e.scrollColBy(-horizontalWheelChars)
 		} else if e.scrollRow > 0 {
 			e.scrollRow--
 		}
-		return true
 	case tcell.WheelDown:
-		if ev.Modifiers()&tcell.ModShift != 0 {
+		if shift && !e.wrapMode {
 			e.scrollColBy(horizontalWheelChars)
-		} else if e.scrollRow < e.doc.Len()-1 {
+		} else if e.scrollRow < e.scrollRows()-1 {
 			e.scrollRow++
 		}
-		return true
 	case tcell.WheelLeft:
-		e.scrollColBy(-horizontalWheelChars)
-		return true
+		if !e.wrapMode {
+			e.scrollColBy(-horizontalWheelChars)
+		}
 	case tcell.WheelRight:
-		e.scrollColBy(horizontalWheelChars)
-		return true
+		if !e.wrapMode {
+			e.scrollColBy(horizontalWheelChars)
+		}
+	default:
+		return false
 	}
-	return false
+	return true
+}
+
+// scrollRows is the extent scrollRow moves over: visual rows wrapped, logical
+// lines otherwise.
+func (e *Editor) scrollRows() int {
+	if e.wrapMode {
+		return len(e.buildVisualLines(e.wrapWidth()))
+	}
+	return e.doc.Len()
 }
 
 // pressIsDouble reports whether an unmodified press at (row, col) follows a
@@ -491,25 +594,6 @@ func (e *Editor) pressIsDouble(row, col int, at time.Time, mod tcell.ModMask) bo
 	return e.clicks.Press([2]int{row, col}, at)
 }
 
-// hScrollbarDrag handles a Button1 press or drag on the horizontal scrollbar.
-// Unlike DataGrid's it delegates to core.HandleScrollbarDragH as-is: that helper
-// treats the track's width as the visible count, and here they are the same
-// number of rune columns. Latches sbDraggingX for the gesture, and returns false
-// for a non-qualifying event so the caller can chain it.
-func (e *Editor) hScrollbarDrag(ev *tcell.EventMouse) bool {
-	// A text-selection drag in progress owns the rest of its gesture: the track spans
-	// the full content width, so a selection dragged past the last line would land on
-	// the bar's row and yank the view sideways.
-	if e.mouseDragging && !e.sbDraggingX {
-		return false
-	}
-	x, y, w, total, _, ok := e.hScrollbar()
-	if !ok {
-		return false
-	}
-	return core.HandleScrollbarDragH(ev, x, y, w, total, &e.sbDraggingX, &e.scrollCol)
-}
-
 // SetCursorFromScreen moves the cursor to the document position under (x, y) and
 // clears any selection: HandleMouse's fresh-click targeting, exposed for callers
 // placing the cursor without a synthetic mouse event.
@@ -523,7 +607,8 @@ func (e *Editor) SetCursorFromScreen(x, y int) {
 		col = e.runeColAtScreenX(row, x-contentX)
 	}
 	e.cursorRow, e.cursorCol = row, col
-	e.selecting, e.selBlock, e.mouseDragging, e.sbDragging, e.sbDraggingX = false, false, false, false, false
+	e.selecting, e.selBlock = false, false
+	e.gesture.Release()
 	e.desiredCol = core.ColumnOfRune(e.doc.Line(row), col)
 	e.ensureCursorVisible()
 }

@@ -270,6 +270,42 @@ func TestEditorSelectionDeletedByBackspace(t *testing.T) {
 	}
 }
 
+// TestEditorPasteTextAndCaret pins insertText's joins and where it leaves the
+// caret: after the pasted text, on the last pasted line.
+func TestEditorPasteTextAndCaret(t *testing.T) {
+	for _, tc := range []struct {
+		name, doc    string
+		row, col     int
+		paste, want  string
+		wantR, wantC int
+	}{
+		{"one line mid-line", "abcd", 0, 2, "XY", "abXYcd", 0, 4},
+		{"one line at the end", "ab", 0, 2, "XY", "abXY", 0, 4},
+		{"multi-line mid-line", "abcd\nz", 0, 1, "1\n22\n333", "a1\n22\n333bcd\nz", 2, 3},
+		{"trailing newline", "abcd", 0, 2, "X\n", "abX\ncd", 1, 0},
+		{"leading newline", "abcd", 0, 2, "\nX", "ab\nXcd", 1, 1},
+		{"CRLF", "ab", 0, 1, "1\r\n2", "a1\n2b", 1, 1},
+		{"last row of many", "a\nb\nc", 2, 1, "x\ny", "a\nb\ncx\ny", 3, 1},
+		{"into an empty document", "", 0, 0, "p\nq", "p\nq", 1, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTestEditor(tc.doc)
+			e.cursorRow, e.cursorCol = tc.row, tc.col
+			e.Paste(tc.paste)
+			if got := e.Text(); got != tc.want {
+				t.Fatalf("Text() = %q, want %q", got, tc.want)
+			}
+			if e.cursorRow != tc.wantR || e.cursorCol != tc.wantC {
+				t.Fatalf("caret = (%d,%d), want (%d,%d)", e.cursorRow, e.cursorCol, tc.wantR, tc.wantC)
+			}
+			e.undo()
+			if got := e.Text(); got != tc.doc {
+				t.Fatalf("after undo Text() = %q, want %q", got, tc.doc)
+			}
+		})
+	}
+}
+
 func TestEditorCutCopyPasteRoundTrip(t *testing.T) {
 	e := newTestEditor("hello world")
 	for range 5 {
@@ -432,7 +468,7 @@ func TestEditorSetTextResetsSelectionAndUndo(t *testing.T) {
 	if !e.HasSelection() {
 		t.Fatal("setup: expected a selection")
 	}
-	e.pushUndo() // simulate prior edit history on the old document
+	e.pushUndoSpan(0, e.doc.Len()) // simulate prior edit history on the old document
 
 	e.SetText("hi") // shorter than the old selection anchor's column
 
@@ -491,12 +527,12 @@ func TestEditorUndoStackCapped(t *testing.T) {
 }
 
 // TestEditorUndoStackCappedByBytes covers the second undo cap: a document big
-// enough that maxUndoBytes binds before maxUndoSteps does. Paste is the
-// operation used because it is one of the paths whose reach isn't known in
-// advance, so it still copies the whole buffer per step — a keystroke's step
-// covers a couple of lines and would never reach either cap (see
-// TestEditorKeystrokeStepIsProportionalToTheEdit). Ten pastes into a ~13 MB
-// document may retain at most four steps, not ten.
+// enough that maxUndoBytes binds before maxUndoSteps does. ReplaceText is the
+// operation used because it rewrites the whole document, so its step copies the
+// whole buffer — a keystroke's or a line action's step covers a few lines and
+// would never reach either cap (see TestEditorKeystrokeStepIsProportionalToTheEdit
+// and TestEditorLineActionsKeepUndoHistoryOnALargeScript). Ten rewrites of a
+// ~13 MB document may retain at most four steps, not ten.
 func TestEditorUndoStackCappedByBytes(t *testing.T) {
 	line := strings.Repeat("x", 200)
 	lines := make([]string, 16000)
@@ -505,7 +541,7 @@ func TestEditorUndoStackCappedByBytes(t *testing.T) {
 	}
 	e := newTestEditor(strings.Join(lines, "\n"))
 	for range 10 {
-		e.Paste("y")
+		e.ReplaceText("y" + e.Text())
 	}
 	if e.undoBytes > maxUndoBytes {
 		t.Fatalf("undoBytes = %d, want <= %d", e.undoBytes, maxUndoBytes)
@@ -531,7 +567,7 @@ func TestEditorUndoStackCappedByBytes(t *testing.T) {
 // maxUndoBytes is kept anyway — one undo has to work on any document.
 func TestEditorUndoKeepsNewestStepOverBudget(t *testing.T) {
 	e := newTestEditor(strings.Repeat(strings.Repeat("x", 1000)+"\n", 20000))
-	e.Paste("y")
+	e.ReplaceText("y" + e.Text())
 	if len(e.undoStack) != 1 {
 		t.Fatalf("undoStack len = %d, want 1 (newest step kept regardless of size)", len(e.undoStack))
 	}
@@ -654,6 +690,54 @@ func TestEditorUndoRestoresEveryEditPath(t *testing.T) {
 		{"move lines down", func(e *Editor) { e.cursorRow = 1; e.MoveLinesDown() }},
 		{"toggle comments", func(e *Editor) { selectRows(e, 0, 4); e.ToggleLineComments() }},
 		{"uppercase selection", func(e *Editor) { selectRows(e, 1, 3); e.UppercaseSelection() }},
+		{"lowercase a block selection", func(e *Editor) {
+			e.selecting, e.selBlock = true, true
+			e.selAnchorRow, e.selAnchorCol = 3, 6
+			e.cursorRow, e.cursorCol = 1, 0
+			e.LowercaseSelection()
+		}},
+		{"duplicate a selection ending at column 0", func(e *Editor) {
+			selectRows(e, 1, 2)
+			e.cursorRow, e.cursorCol = 3, 0
+			e.DuplicateLines()
+		}},
+		{"duplicate the last line", func(e *Editor) { e.cursorRow = 4; e.DuplicateLines() }},
+		{"delete every line", func(e *Editor) { selectRows(e, 0, 4); e.DeleteLines() }},
+		{"delete the last line", func(e *Editor) { e.cursorRow = 4; e.DeleteLines() }},
+		{"move a selection up to the top", func(e *Editor) { selectRows(e, 1, 3); e.MoveLinesUp() }},
+		{"move a selection down to the bottom", func(e *Editor) {
+			selectRows(e, 2, 3)
+			e.cursorRow, e.cursorCol = 4, 0 // column-0 end: row 4 is not moved
+			e.MoveLinesDown()
+		}},
+		{"indent lines", func(e *Editor) { selectRows(e, 2, 4); e.IndentLines() }},
+		{"dedent lines", func(e *Editor) { selectRows(e, 0, 2); e.DedentLines() }},
+		{"cut a block", func(e *Editor) {
+			e.selecting, e.selBlock = true, true
+			e.selAnchorRow, e.selAnchorCol = 0, 1
+			e.cursorRow, e.cursorCol = 3, 4
+			e.Cut()
+		}},
+		{"block paste", func(e *Editor) {
+			e.blockClip = "ab\ncd"
+			e.cursorRow, e.cursorCol = 1, 3
+			e.Paste("ab\ncd")
+		}},
+		{"block paste over a selection", func(e *Editor) {
+			e.blockClip = "ab\ncd\nef"
+			selectRows(e, 1, 2)
+			e.Paste("ab\ncd\nef")
+		}},
+		{"block paste running past the end", func(e *Editor) {
+			e.blockClip = "1\n2\n3\n4"
+			e.cursorRow, e.cursorCol = 3, 2
+			e.Paste("1\n2\n3\n4")
+		}},
+		{"replace all in a selection", func(e *Editor) {
+			selectRows(e, 1, 3)
+			e.SetSearch(SearchOptions{Query: "SELECT", Replace: "x", InSelection: true})
+			e.ReplaceAll()
+		}},
 		{"block insert", func(e *Editor) {
 			e.selecting, e.selBlock = true, true
 			e.selAnchorRow, e.selAnchorCol = 1, 2
@@ -706,6 +790,45 @@ func TestEditorUndoRestoresEveryEditPath(t *testing.T) {
 				t.Errorf("redo put the cursor at (%d,%d), want (%d,%d)", e.cursorRow, e.cursorCol, afterRow, afterCol)
 			}
 		})
+	}
+}
+
+// TestEditorLineActionsKeepUndoHistoryOnALargeScript pins that the line
+// actions record only the rows they touch: a whole-document step per action
+// on a 20,000-line script is ~5 MB, so a few of them evicted every earlier
+// step past maxUndoBytes.
+func TestEditorLineActionsKeepUndoHistoryOnALargeScript(t *testing.T) {
+	doc := strings.Repeat("SELECT name, object_id FROM sys.objects WHERE type = 'U'\n", 20000)
+	e := newTestEditor(doc)
+	e.cursorRow = 10000
+	for range 50 {
+		e.HandleKey(tuikittest.Rune('x', tcell.ModNone))
+	}
+	for range 10 {
+		e.IndentLines()
+		e.DedentLines()
+		e.ToggleLineComments()
+		e.DuplicateLines()
+		e.MoveLinesDown()
+		e.MoveLinesUp()
+		e.DeleteLines()
+	}
+	e.SelectRange(100, 0, 110, 3)
+	e.UppercaseSelection()
+	e.Cut()
+	e.Paste("a\nb")
+	e.SetSearch(SearchOptions{Query: "WHERE type = 'U'x", Replace: "-"})
+	e.ReplaceAll()
+
+	e.finalizeStep()
+	if e.undoBytes > 1<<20 {
+		t.Errorf("undo stack holds %d bytes; line actions should record only their rows", e.undoBytes)
+	}
+	for len(e.undoStack) > 0 {
+		e.undo()
+	}
+	if e.Text() != doc {
+		t.Error("undoing every step did not restore the original script: early steps were evicted")
 	}
 }
 
@@ -771,8 +894,8 @@ func TestEditorPlainClickStillReanchors(t *testing.T) {
 }
 
 // TestEditorShiftClickExtendsSelectionInWrapMode confirms the same
-// Shift+Click extension applies to handleMouseWrapped, the wrap-mode
-// counterpart of HandleMouse's click handling.
+// Shift+Click extension applies in wrap mode, where the press derives its
+// position through wrappedPosAt.
 func TestEditorShiftClickExtendsSelectionInWrapMode(t *testing.T) {
 	e := newTestEditor("hello world")
 	e.SetWrapMode(true)
@@ -1011,8 +1134,8 @@ func TestEditorHScrollbarDragScrollsSideways(t *testing.T) {
 	}
 	scrolled := e.scrollCol
 	e.HandleMouse(tcell.NewEventMouse(x+w*2/3, y, tcell.ButtonNone, tcell.ModNone))
-	if e.sbDraggingX {
-		t.Error("sbDraggingX still latched after the release")
+	if e.gestureHeld() {
+		t.Error("thumb drag still held after the release")
 	}
 
 	// Back to the far left.
@@ -1069,8 +1192,8 @@ func TestEditorSelectionDragIsNotStolenByHScrollbar(t *testing.T) {
 	before := e.scrollCol
 	e.HandleMouse(tcell.NewEventMouse(contentX+20, barY, tcell.Button1, tcell.ModNone))
 
-	if e.sbDraggingX {
-		t.Error("the scrollbar latched onto a text-selection drag that merely crossed its row")
+	if !e.gestureIs(editorText) {
+		t.Error("the scrollbar took over a text-selection drag that merely crossed its row")
 	}
 	if e.scrollCol != before {
 		t.Errorf("scrollCol moved from %d to %d during a text-selection drag", before, e.scrollCol)
@@ -1089,22 +1212,23 @@ func TestEditorSelectionDragIsNotStolenByHScrollbar(t *testing.T) {
 func TestEditorSetTextClearsEveryMouseLatch(t *testing.T) {
 	latches := func(e *Editor) map[string]*bool {
 		return map[string]*bool{
-			"selecting":     &e.selecting,
-			"selBlock":      &e.selBlock,
-			"mouseDragging": &e.mouseDragging,
-			"sbDragging":    &e.sbDragging,
-			"sbDraggingX":   &e.sbDraggingX,
+			"selecting": &e.selecting,
+			"selBlock":  &e.selBlock,
 		}
 	}
 	e := wideTestEditor()
 	for _, p := range latches(e) {
 		*p = true
 	}
+	e.HandleMouse(tcell.NewEventMouse(e.rect.X+e.gutterWidth()+1, 0, tcell.Button1, tcell.ModNone))
 	e.SetText("SELECT 1")
 	for name, p := range latches(e) {
 		if *p {
 			t.Errorf("%s survived SetText", name)
 		}
+	}
+	if e.gestureHeld() {
+		t.Error("the held gesture survived SetText")
 	}
 }
 
@@ -1298,7 +1422,7 @@ func TestEditorRedoStackBound(t *testing.T) {
 	e := newTestEditor("seed")
 	for range 10 {
 		e.cursorRow, e.cursorCol = 0, 0
-		e.Paste(chunk) // a whole-document step, so each one grows the buffer
+		e.Paste(chunk) // each one grows the buffer
 	}
 	e.finalizeStep()
 	undoSteps, undoBytes := len(e.undoStack), e.undoBytes

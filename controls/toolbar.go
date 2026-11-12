@@ -46,6 +46,11 @@ type Toolbar struct {
 	widths  []int // widths[i] is button i's total width (icon + padding); 0 = hidden
 	hover   int   // index of the hovered button, -1 = none
 
+	// bx, by, bw are SetBounds' last arguments, kept so SetButtons can lay the
+	// new buttons out at once: starts and widths are indexed by button, and a
+	// longer list drawn against the old layout indexed past its end.
+	bx, by, bw int
+
 	// press distinguishes a fresh Button1 press (fire the button's Action)
 	// from a continued hold over the same button (as MenuBar and TreeView). Without
 	// it, the mouse tracking mode core.Init enables (EnableMouse())
@@ -60,10 +65,12 @@ func NewToolbar() *Toolbar {
 	return &Toolbar{hover: -1}
 }
 
-// SetButtons replaces all buttons.
+// SetButtons replaces all buttons and lays them out in the last SetBounds row
+// (none shown before the first SetBounds).
 func (tb *Toolbar) SetButtons(buttons []ToolbarButton) {
 	tb.buttons = buttons
 	tb.hover = -1
+	tb.SetBounds(tb.bx, tb.by, tb.bw)
 }
 
 // SetBounds positions the toolbar flush against the right edge of the row
@@ -72,6 +79,7 @@ func (tb *Toolbar) SetButtons(buttons []ToolbarButton) {
 // hidden in DropRank order rather than painted over the menu labels, which
 // is how Tools and Help vanished on a narrow terminal.
 func (tb *Toolbar) SetBounds(x, y, w int) {
+	tb.bx, tb.by, tb.bw = x, y, w
 	shown := make([]bool, len(tb.buttons))
 	for i := range shown {
 		shown[i] = true
@@ -233,7 +241,8 @@ func (tb *Toolbar) Bounds() core.Rect { return tb.rect }
 // tell its region apart from MenuBar's, which occupies the rest of the
 // same row.
 func (tb *Toolbar) HandleMouse(ev *tcell.EventMouse) bool {
-	tb.press.Release(ev)
+	held := tb.press.Held()
+	released := tb.press.Release(ev)
 	mx, my := ev.Position()
 	if !tb.rect.Contains(mx, my) {
 		tb.hover = -1
@@ -241,6 +250,10 @@ func (tb *Toolbar) HandleMouse(ev *tcell.EventMouse) bool {
 	}
 	idx := tb.buttonAt(mx)
 	tb.hover = idx
+	if released {
+		// Hover is tracked but not claimed (core.MouseHandler).
+		return held
+	}
 	if idx >= 0 && tb.press.Fresh(ev) {
 		if b := tb.buttons[idx]; b.Action != nil && b.enabled() {
 			b.Action()

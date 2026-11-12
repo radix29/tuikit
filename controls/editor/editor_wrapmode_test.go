@@ -21,8 +21,7 @@ func newWrappedTestEditor(text string, w, h int) *Editor {
 
 // A block (column) selection cannot survive into wrap mode: it reinterprets the
 // anchor/cursor pair as a rectangle over fixed rune columns, which wrapping
-// breaks, and handleMouseWrapped never touches selBlock — so no click in wrap
-// mode would clear a flag the setter left behind.
+// breaks, and only a fresh press would clear a flag the setter left behind.
 func TestSetWrapModeClearsBlockSelection(t *testing.T) {
 	e := newTestEditor("aaaa\nbbbb\ncccc")
 	blockSelect(e, 0, 1, 2, 3)
@@ -45,16 +44,17 @@ func TestSetWrapModeClearsBlockSelection(t *testing.T) {
 func TestSetWrapModeResetsScrollState(t *testing.T) {
 	e := newTestEditor("one\ntwo\nthree\nfour\nfive\nsix\nseven\neight")
 	e.SetBounds(0, 0, 20, 3)
+	// A press on line 0 holds a gesture and starts a selection.
+	e.HandleMouse(tcell.NewEventMouse(e.rect.X+e.gutterWidth()+1, 0, tcell.Button1, tcell.ModNone))
 	e.scrollRow, e.scrollCol = 5, 7
-	e.selecting, e.mouseDragging = true, true
 
 	e.SetWrapMode(true)
 
 	if e.scrollRow != 0 || e.scrollCol != 0 {
 		t.Fatalf("scroll after mode switch = (%d,%d), want (0,0)", e.scrollRow, e.scrollCol)
 	}
-	if e.selecting || e.mouseDragging {
-		t.Fatalf("selecting=%v mouseDragging=%v after mode switch, want both false", e.selecting, e.mouseDragging)
+	if e.selecting || e.gestureHeld() {
+		t.Fatalf("selecting=%v gesture held=%v after mode switch, want both false", e.selecting, e.gestureHeld())
 	}
 }
 

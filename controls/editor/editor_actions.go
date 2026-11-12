@@ -68,23 +68,13 @@ func (e *Editor) Redo() { e.redo() }
 // selection) below itself, moving the cursor into the copy. Any selection
 // collapses.
 func (e *Editor) DuplicateLines() {
-	e.pushUndo()
 	sr, er := e.affectedLineRange()
+	// The copy goes in as an insertion of n rows below er, an empty span there:
+	// the undo step holds no lines at all, however large the document.
+	e.pushUndoSpan(er+1, er+1)
 	e.selecting, e.selBlock = false, false
 	n := er - sr + 1
-	block := make([][]rune, n)
-	for i := range n {
-		line := e.doc.Line(sr + i)
-		cp := make([]rune, len(line))
-		copy(cp, line)
-		block[i] = cp
-	}
-	e.doc.edit(func(lines [][]rune) [][]rune {
-		newLines := make([][]rune, 0, len(lines)+n)
-		newLines = append(newLines, lines[:er+1]...)
-		newLines = append(newLines, block...)
-		return append(newLines, lines[er+1:]...)
-	})
+	e.doc.replaceRange(er+1, 0, cloneLines(e.doc.Lines()[sr:er+1]))
 	// min: a cursor on the row a column-0 selection end leaves out
 	// (affectedLineRange) lands on the copy's last line, not past it.
 	e.cursorRow = min(e.cursorRow, er) + n
@@ -95,18 +85,14 @@ func (e *Editor) DuplicateLines() {
 // DeleteLines removes the current line (or every line spanned by the
 // selection). Any active selection collapses.
 func (e *Editor) DeleteLines() {
-	e.pushUndo()
 	sr, er := e.affectedLineRange()
+	e.pushUndoSpan(sr, er+1)
 	e.selecting, e.selBlock = false, false
-	e.doc.edit(func(lines [][]rune) [][]rune {
-		newLines := make([][]rune, 0, len(lines)-(er-sr+1)+1)
-		newLines = append(newLines, lines[:sr]...)
-		newLines = append(newLines, lines[er+1:]...)
-		if len(newLines) == 0 {
-			newLines = [][]rune{{}}
-		}
-		return newLines
-	})
+	var with [][]rune
+	if er-sr+1 == e.doc.Len() {
+		with = [][]rune{{}} // a document always keeps one line
+	}
+	e.doc.replaceRange(sr, er-sr+1, with)
 	e.cursorRow, e.cursorCol = sr, 0
 	e.clampCursor()
 	e.ensureCursorVisible()
@@ -120,13 +106,10 @@ func (e *Editor) MoveLinesUp() {
 	if sr == 0 {
 		return
 	}
-	e.pushUndo()
-	e.doc.edit(func(lines [][]rune) [][]rune {
-		above := lines[sr-1]
-		copy(lines[sr-1:er], lines[sr:er+1])
-		lines[er] = above
-		return lines
-	})
+	e.pushUndoSpan(sr-1, er+1)
+	lines := e.doc.Lines()
+	moved := append(slices.Clone(lines[sr:er+1]), lines[sr-1])
+	e.doc.replaceRange(sr-1, len(moved), moved)
 	e.cursorRow--
 	if e.selecting {
 		e.selAnchorRow--
@@ -142,13 +125,10 @@ func (e *Editor) MoveLinesDown() {
 	if er >= e.doc.Len()-1 {
 		return
 	}
-	e.pushUndo()
-	e.doc.edit(func(lines [][]rune) [][]rune {
-		below := lines[er+1]
-		copy(lines[sr+1:er+2], lines[sr:er+1])
-		lines[sr] = below
-		return lines
-	})
+	e.pushUndoSpan(sr, er+2)
+	lines := e.doc.Lines()
+	moved := append([][]rune{lines[er+1]}, lines[sr:er+1]...)
+	e.doc.replaceRange(sr, len(moved), moved)
 	e.cursorRow++
 	if e.selecting {
 		e.selAnchorRow++
@@ -263,8 +243,8 @@ func (e *Editor) leadingIndentForNewLine() int {
 // every line spanned by the selection). An active selection is preserved, its
 // columns shifted right on whichever row(s) the anchor/cursor sit.
 func (e *Editor) IndentLines() {
-	e.pushUndo()
 	sr, er := e.affectedLineRange()
+	e.pushUndoSpan(sr, er+1)
 	for r := sr; r <= er; r++ {
 		line := e.doc.Line(r)
 		nl := make([]rune, len(line)+e.indentWidth)
@@ -288,8 +268,8 @@ func (e *Editor) IndentLines() {
 // from the current line (or every line spanned by the selection). An active
 // selection is preserved, its columns shifted left by what was removed per row.
 func (e *Editor) DedentLines() {
-	e.pushUndo()
 	sr, er := e.affectedLineRange()
+	e.pushUndoSpan(sr, er+1)
 	for r := sr; r <= er; r++ {
 		line := e.doc.Line(r)
 		removed := e.dedentAmount(line)
@@ -384,7 +364,7 @@ func (e *Editor) ToggleLineComments() {
 			break
 		}
 	}
-	e.pushUndo()
+	e.pushUndoSpan(sr, er+1)
 	for r := sr; r <= er; r++ {
 		before := len(e.doc.Line(r))
 		if allCommented {
@@ -414,7 +394,9 @@ func (e *Editor) transformSelection(fn func(rune) rune) {
 	if !e.HasSelection() {
 		return
 	}
-	e.pushUndo()
+	// selectionBounds' rows are the min/max of anchor and cursor in both modes.
+	sr, _, er, _ := e.selectionBounds()
+	e.pushUndoSpan(sr, er+1)
 	apply := func(r, lo, hi int) {
 		line := e.doc.Line(r)
 		for i := lo; i < hi; i++ {
@@ -431,7 +413,7 @@ func (e *Editor) transformSelection(fn func(rune) rune) {
 		}
 		return
 	}
-	sr, sc, er, ec := e.selectionBounds()
+	_, sc, _, ec := e.selectionBounds()
 	for r := sr; r <= er; r++ {
 		n := len(e.doc.Line(r))
 		lo, hi := 0, n

@@ -186,10 +186,15 @@ func (l *ListBox) HandleKey(ev *tcell.EventKey) bool {
 
 // HandleMouse processes mouse clicks and wheel scroll.
 func (l *ListBox) HandleMouse(ev *tcell.EventMouse) bool {
+	// Plain motion is never claimed (core.MouseHandler): a host reads true as
+	// "the list took it", and PropertySheet moved keyboard focus to its page
+	// list when the pointer merely crossed it.
+	held := l.press.Held() || l.sbDragging
+	mx, my := ev.Position()
 	if l.press.Release(ev) {
 		l.sbDragging = false
+		return held && l.rect.Contains(mx, my)
 	}
-	mx, my := ev.Position()
 
 	// Scrollbar drag/click takes priority over row hit-testing below — the
 	// bar is drawn at rect.Right()-1 (see Draw), which without this check

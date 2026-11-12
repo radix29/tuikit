@@ -164,7 +164,7 @@ func (p *PropertySheet) HandleMouse(ev *tcell.EventMouse) bool {
 			p.activateButton(i)
 		} else if p.pageList.HandleMouse(ev) {
 			p.dragZone.Arm(ev, zonePages)
-			p.setZone(zonePages)
+			p.focusOnPress(ev, zonePages)
 		}
 		return true
 	}
@@ -175,7 +175,7 @@ func (p *PropertySheet) HandleMouse(ev *tcell.EventMouse) bool {
 	if f := p.PageForm(p.current); f != nil && f.OverlayActive() {
 		if f.HandleMouse(ev) {
 			p.dragZone.Arm(ev, zoneForm)
-			p.setZone(zoneForm)
+			p.focusOnPress(ev, zoneForm)
 			return true
 		}
 	}
@@ -188,15 +188,25 @@ func (p *PropertySheet) HandleMouse(ev *tcell.EventMouse) bool {
 	}
 	if p.pageList.HandleMouse(ev) {
 		p.dragZone.Arm(ev, zonePages)
-		p.setZone(zonePages)
+		p.focusOnPress(ev, zonePages)
 		return true
 	}
 	if f := p.PageForm(p.current); f != nil && f.HandleMouse(ev) {
 		p.dragZone.Arm(ev, zoneForm)
-		p.setZone(zoneForm)
+		p.focusOnPress(ev, zoneForm)
 		return true
 	}
 	return true
+}
+
+// focusOnPress moves keyboard focus to zone z when ev is a button press. A
+// zone that consumed a wheel tick or a hover keeps focus where it was: hovering
+// the page list on the way to the mouse's resting place sent the next keys to
+// the list instead of the field being typed into.
+func (p *PropertySheet) focusOnPress(ev *tcell.EventMouse, z focusZone) {
+	if ev.Buttons()&(tcell.Button1|tcell.Button2|tcell.Button3) != 0 {
+		p.setZone(z)
+	}
 }
 
 // formLocked reports whether the form refuses input: while applying. See

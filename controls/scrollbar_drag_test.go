@@ -26,8 +26,8 @@ func TestDataGridScrollbarDragScrolls(t *testing.T) {
 	if g.scrollRow != 0 {
 		t.Errorf("scrollRow after clicking track top = %d, want 0", g.scrollRow)
 	}
-	if !g.sbDragging {
-		t.Fatal("sbDragging should be true after pressing on the scrollbar")
+	if !g.gestureIs(gridVBar) {
+		t.Fatal("pressing on the scrollbar should start a thumb drag")
 	}
 	if g.selRow != 0 {
 		t.Errorf("selRow = %d, clicking the scrollbar must not also select a row", g.selRow)
@@ -44,8 +44,8 @@ func TestDataGridScrollbarDragScrolls(t *testing.T) {
 	}
 
 	g.HandleMouse(tcell.NewEventMouse(sbX-2, g.rect.Y+2+6, tcell.ButtonNone, tcell.ModNone))
-	if g.sbDragging {
-		t.Error("sbDragging should reset on release")
+	if g.gestureZone() != nil {
+		t.Error("the thumb drag should end on release")
 	}
 }
 
@@ -65,8 +65,8 @@ func TestTreeViewScrollbarDragScrolls(t *testing.T) {
 	if !tv.HandleMouse(tcell.NewEventMouse(sbX, inner.Y+inner.H-1, tcell.Button1, tcell.ModNone)) {
 		t.Fatal("HandleMouse on scrollbar column should be handled")
 	}
-	if !tv.sbDragging {
-		t.Fatal("sbDragging should be true after pressing on the scrollbar")
+	if z, held := tv.gesture.Owner(); !held || z != treeVBar {
+		t.Fatal("pressing on the scrollbar should start a thumb drag")
 	}
 	if tv.scroll == 0 {
 		t.Error("scroll should have jumped forward when clicking near the bottom of the track")
@@ -76,8 +76,8 @@ func TestTreeViewScrollbarDragScrolls(t *testing.T) {
 	}
 
 	tv.HandleMouse(tcell.NewEventMouse(sbX, inner.Y, tcell.ButtonNone, tcell.ModNone))
-	if tv.sbDragging {
-		t.Error("sbDragging should reset on release")
+	if _, held := tv.gesture.Owner(); held {
+		t.Error("the thumb drag should end on release")
 	}
 }
 

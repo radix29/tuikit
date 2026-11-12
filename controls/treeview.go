@@ -70,16 +70,12 @@ type TreeView struct {
 	// Enter's default action).
 	clicks core.ClickTracker[int]
 
-	// press distinguishes a fresh Button1 press from a continued hold over the
-	// same row. Without it, tcell's all-motion tracking resends Button1 on every
-	// motion while the button is down, re-firing the click handling on every
-	// resend.
-	press core.PressLatch
-
-	// sbDragging is true while the scrollbar thumb is being dragged; see DataGrid's
-	// field of the same name for why it is separate from press.
-	sbDragging  bool
-	sbDraggingX bool // same, for the horizontal scrollbar thumb
+	// gesture is the zone the held Button1 press began in (see treeZone). Every
+	// event until the release goes to it: tcell's all-motion tracking resends
+	// Button1 on every motion while the button is down, which would re-fire the
+	// click handling on every resend, and a thumb drag keeps following the
+	// pointer off the tree.
+	gesture core.Gesture[treeZone]
 
 	// Callbacks, set by the application layer
 	OnExpand   func(nodeID TreeNodeID) // called when a node is expanded
@@ -184,9 +180,25 @@ func (tv *TreeView) titleButtonRect() (core.Rect, bool) {
 	return core.Rect{X: x, Y: tv.rect.Y, W: w, H: 1}, true
 }
 
-// SetBounds positions the tree view.
+// SetBounds positions the tree view. An unchanged rect changes nothing; a changed
+// one clamps both scroll offsets to the content without moving the selection.
+//
+// Without the clamp a tree scrolled to its end keeps that offset when the window
+// grows taller, and the rows it could now show stay blank below the last node.
 func (tv *TreeView) SetBounds(x, y, w, h int) {
-	tv.rect = core.Rect{X: x, Y: y, W: w, H: h}
+	r := core.Rect{X: x, Y: y, W: w, H: h}
+	if r == tv.rect {
+		return
+	}
+	tv.rect = r
+	inner := r.Inner(1)
+	if inner.H > 0 {
+		tv.scroll = core.Clamp(tv.scroll, 0, max(0, len(tv.nodes)-inner.H))
+		tv.ensureVisible(inner.H)
+	}
+	if inner.W > 0 {
+		tv.scrollX = core.Clamp(tv.scrollX, 0, max(0, tv.contentW-inner.W))
+	}
 }
 
 // Bounds returns the rect SetBounds last gave the tree, border included.
@@ -350,6 +362,14 @@ func (tv *TreeView) Draw(s tcell.Screen) {
 func (tv *TreeView) HandleKey(ev *tcell.EventKey) bool {
 	inner := tv.rect.Inner(1)
 	switch ev.Key() {
+	case tcell.KeyPgUp, tcell.KeyPgDn, tcell.KeyHome, tcell.KeyEnd:
+		// An empty tree has no row to move to: PgDn's min(len-1, …) is -1, and Draw
+		// then indexes nodes[-1].
+		if len(tv.nodes) == 0 {
+			return true
+		}
+	}
+	switch ev.Key() {
 	case tcell.KeyUp:
 		if tv.sel > 0 {
 			tv.sel--
@@ -427,52 +447,94 @@ func (tv *TreeView) HandleKey(ev *tcell.EventKey) bool {
 	return false
 }
 
+// treeZone is the part of the tree a Button1 press began in, which owns every
+// event of the gesture until the release (TreeView.gesture).
+type treeZone int
+
+const (
+	// treeActed is a press on a node or the title button, acted on by the press:
+	// the rest of the gesture is swallowed (or, for a node, is the host's drag
+	// toward a drop target, which the host routes itself).
+	treeActed treeZone = iota
+	// treeVBar and treeHBar drag the scrollbar thumbs.
+	treeVBar
+	treeHBar
+)
+
 // HandleMouse handles mouse events.
 func (tv *TreeView) HandleMouse(ev *tcell.EventMouse) bool {
 	mx, my := ev.Position()
-	if tv.press.Release(ev) {
-		tv.sbDragging = false
-		tv.sbDraggingX = false
-	}
-	if !tv.rect.Contains(mx, my) {
-		tv.titleButton.hover = false
-		// A latched thumb drag keeps control once the mouse leaves the tree
-		// (HandleScrollbarDrag's contract), so a fast drag still reaches the end.
-		inner := tv.rect.Inner(1)
-		if tv.sbDragging {
-			return core.HandleScrollbarDrag(ev, tv.rect.Right()-1, inner.Y, inner.H, len(tv.nodes), &tv.sbDragging, &tv.scroll)
-		}
-		if tv.sbDraggingX {
-			return core.HandleScrollbarDragH(ev, inner.X, tv.rect.Bottom()-1, inner.W, tv.contentW, &tv.sbDraggingX, &tv.scrollX)
-		}
-		return false
+	if ev.Buttons() == tcell.ButtonNone {
+		tv.gesture.Release()
 	}
 	btn, onBtn := tv.titleButtonRect()
 	tv.titleButton.hover = onBtn && btn.Contains(mx, my)
-	inner := tv.rect.Inner(1)
-
-	// Scrollbar drag/click takes priority over the row hit-testing below. The
-	// vertical bar is drawn over the right border column and the horizontal bar
-	// over the bottom border row (see Draw), the latter outside the row range the
-	// hit-test checks, so both scrollbar checks must run first.
-	if core.HandleScrollbarDrag(ev, tv.rect.Right()-1, inner.Y, inner.H, len(tv.nodes), &tv.sbDragging, &tv.scroll) {
+	// Ahead of the bounds test: a thumb drag keeps control once the mouse leaves
+	// the tree, so a fast drag still reaches the end, and a press that acted
+	// (a row, the title button) swallows its resends wherever they land.
+	if tv.gesture.Route(ev, tv.routeDrag) {
 		return true
 	}
-	if core.HandleScrollbarDragH(ev, inner.X, tv.rect.Bottom()-1, inner.W, tv.contentW, &tv.sbDraggingX, &tv.scrollX) {
-		return true
+	if !tv.rect.Contains(mx, my) {
+		return false
+	}
+	inner := tv.rect.Inner(1)
+
+	// Scrollbar presses take priority over the row hit-testing below. The vertical
+	// bar is drawn over the right border column and the horizontal bar over the
+	// bottom border row (see Draw), the latter outside the row range the hit-test
+	// checks, so both scrollbar checks must run first.
+	if ev.Buttons() == tcell.Button1 {
+		if core.OnScrollbar(mx, my, tv.rect.Right()-1, inner.Y, inner.H, len(tv.nodes)) {
+			tv.dragVScrollbar(my)
+			tv.gesture.Arm(ev, treeVBar)
+			return true
+		}
+		if core.OnScrollbarH(mx, my, inner.X, tv.rect.Bottom()-1, inner.W, tv.contentW) {
+			tv.dragHScrollbar(mx)
+			tv.gesture.Arm(ev, treeHBar)
+			return true
+		}
 	}
 
 	// The title button sits on the top border, outside every row, so a press there
 	// never selects, expands or arms a drag (hosts arm from NodeIDAt, which
-	// rejects the border). Checked after the scrollbars: a thumb drag drifting up
-	// onto it is still that drag. A fresh press runs the action once; resends of
-	// the same hold, or a hold that began on a row and drifted here, don't.
-	if btn, ok := tv.titleButtonRect(); ok && btn.Contains(mx, my) && ev.Buttons() == tcell.Button1 {
-		if tv.press.Fresh(ev) {
-			if tv.titleButton.action != nil {
-				tv.titleButton.action()
-			}
+	// rejects the border). A press runs the action once; its resends are the
+	// gesture's, and a hold that began on a row and drifted here is that row's.
+	if onBtn && btn.Contains(mx, my) && ev.Buttons() == tcell.Button1 {
+		if tv.titleButton.action != nil {
+			tv.titleButton.action()
 		}
+		tv.gesture.Arm(ev, treeActed)
+		return true
+	}
+
+	// The wheel scrolls from anywhere over the tree, the border and the blank
+	// space below the last node included, and is consumed even at a limit
+	// (core.MouseHandler): falling through scrolled whatever lay beneath.
+	switch ev.Buttons() {
+	case tcell.WheelUp:
+		// Shift+wheel is the desktop convention for horizontal scroll, and some
+		// terminals report it that way rather than as WheelLeft/WheelRight below, so
+		// honour both (as DataGrid, Editor and PlanView do).
+		if ev.Modifiers()&tcell.ModShift != 0 {
+			tv.scrollLeft()
+		} else if tv.scroll > 0 {
+			tv.scroll--
+		}
+		return true
+	case tcell.WheelDown:
+		if ev.Modifiers()&tcell.ModShift != 0 {
+			tv.scrollRight()
+		} else if tv.scroll < len(tv.nodes)-inner.H {
+			tv.scroll++
+		}
+		return true
+	case tcell.WheelLeft:
+		tv.scrollLeft()
+		return true
+	case tcell.WheelRight:
+		tv.scrollRight()
 		return true
 	}
 
@@ -487,11 +549,10 @@ func (tv *TreeView) HandleMouse(ev *tcell.EventMouse) bool {
 	}
 	// A press acts on one specific node, so it needs the stricter content hit-test:
 	// the row bound above doesn't constrain mx, and the vertical scrollbar is drawn
-	// over the right border column. HandleScrollbarDrag already claims a press
-	// there whenever the bar shows, so this only changes the no-bar case, but
+	// over the right border column. The scrollbar test above already claims a
+	// press there whenever the bar shows, so this only changes the no-bar case, but
 	// nodeIndexAt is also what app-level drag arming hit-tests with (see NodeIDAt)
-	// and the two must agree on what "landed on a node" means. The wheel cases
-	// below keep the looser row-only bound.
+	// and the two must agree on what "landed on a node" means.
 	if b := ev.Buttons(); b == tcell.Button1 || b == tcell.Button2 {
 		if _, ok := tv.nodeIndexAt(mx, my); !ok {
 			return false
@@ -499,11 +560,9 @@ func (tv *TreeView) HandleMouse(ev *tcell.EventMouse) bool {
 	}
 	switch ev.Buttons() {
 	case tcell.Button1:
-		if !tv.press.Fresh(ev) {
-			// Still the same physical press, or the same drag toward the query editor (see
-			// explorer_drag.go): don't re-select or re-toggle on every resent motion event.
-			return true
-		}
+		// The resends of this press, and a host's drag toward a drop target (the
+		// query editor), are the gesture's: they never re-select or re-toggle.
+		tv.gesture.Arm(ev, treeActed)
 		node := &tv.nodes[idx]
 		// A second press on the same row inside the interval is a double-click:
 		// activate rather than re-select. Recorded before the expander test so a
@@ -548,31 +607,33 @@ func (tv *TreeView) HandleMouse(ev *tcell.EventMouse) bool {
 			tv.OnRightClick(tv.nodes[idx].ID, mx, my)
 		}
 		return true
-	case tcell.WheelUp:
-		// Shift+wheel is the desktop convention for horizontal scroll, and some
-		// terminals report it that way rather than as WheelLeft/WheelRight below, so
-		// honour both (as DataGrid, Editor and PlanView do).
-		if ev.Modifiers()&tcell.ModShift != 0 {
-			tv.scrollLeft()
-		} else if tv.scroll > 0 {
-			tv.scroll--
-		}
-		return true
-	case tcell.WheelDown:
-		if ev.Modifiers()&tcell.ModShift != 0 {
-			tv.scrollRight()
-		} else if tv.scroll < len(tv.nodes)-inner.H {
-			tv.scroll++
-		}
-		return true
-	case tcell.WheelLeft:
-		tv.scrollLeft()
-		return true
-	case tcell.WheelRight:
-		tv.scrollRight()
-		return true
 	}
 	return false
+}
+
+// routeDrag delivers a held Button1 to the zone its press began in.
+func (tv *TreeView) routeDrag(ev *tcell.EventMouse, z treeZone) {
+	mx, my := ev.Position()
+	switch z {
+	case treeVBar:
+		tv.dragVScrollbar(my)
+	case treeHBar:
+		tv.dragHScrollbar(mx)
+	}
+}
+
+// dragVScrollbar points the view at the track position of screen row my.
+func (tv *TreeView) dragVScrollbar(my int) {
+	if inner := tv.rect.Inner(1); inner.H > 0 && len(tv.nodes) > inner.H {
+		tv.scroll = core.ScrollOffsetForDrag(my-inner.Y, inner.H, len(tv.nodes), inner.H)
+	}
+}
+
+// dragHScrollbar points the view at the track position of screen column mx.
+func (tv *TreeView) dragHScrollbar(mx int) {
+	if inner := tv.rect.Inner(1); inner.W > 0 && tv.contentW > inner.W {
+		tv.scrollX = core.ScrollOffsetForDrag(mx-inner.X, inner.W, tv.contentW, inner.W)
+	}
 }
 
 // nodeIndexAt returns the index into tv.nodes of the row drawn at screen
@@ -669,13 +730,21 @@ func (tv *TreeView) collapseSelected() {
 	}
 }
 
+// ensureVisible scrolls the selection into an h-row view. It does nothing for
+// h <= 0: before the first SetBounds Inner(1).H is -2, and scrolling into that
+// left a tree populated early starting at node 3.
 func (tv *TreeView) ensureVisible(h int) {
+	if h <= 0 {
+		return
+	}
 	if tv.sel < tv.scroll {
 		tv.scroll = tv.sel
 	}
 	if tv.sel >= tv.scroll+h {
 		tv.scroll = tv.sel - h + 1
 	}
+	// sel is -1 on an empty tree; a negative scroll would index nodes[-1] in Draw.
+	tv.scroll = max(0, tv.scroll)
 }
 
 func (tv *TreeView) fireSelect() {

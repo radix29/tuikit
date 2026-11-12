@@ -164,8 +164,8 @@ func TestDataGridClickOnTheSelectedRowDoesNotRefireOnSelectRow(t *testing.T) {
 }
 
 // click delivers one complete press/release on a cell. The release matters:
-// it clears mouseDragging, which otherwise suppresses the next press on the
-// same cell as a resent motion event.
+// it ends the gesture, which otherwise takes the next press on the same cell
+// for a resent motion event.
 func click(t *testing.T, g *DataGrid, x, y int) {
 	t.Helper()
 	g.HandleMouse(tcell.NewEventMouse(x, y, tcell.Button1, tcell.ModNone))

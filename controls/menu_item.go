@@ -58,6 +58,23 @@ type Menu struct {
 	Items []MenuItem
 }
 
+// outsideMenu reports what an open menu (a MenuBar dropdown, a ContextMenu)
+// does with an event outside it, per core.MouseHandler: any button press
+// dismisses the menu; a right-click then falls through (consumed false) so the
+// host can open a new menu where it landed, and anything else is consumed. A
+// wheel tick is consumed without dismissing. Plain motion is left to the
+// caller (dismiss and consumed both false).
+func outsideMenu(ev *tcell.EventMouse) (dismiss, consumed bool) {
+	switch b := ev.Buttons(); {
+	case b == tcell.ButtonNone:
+		return false, false
+	case b&(tcell.WheelUp|tcell.WheelDown|tcell.WheelLeft|tcell.WheelRight) != 0:
+		return false, true
+	default:
+		return true, b != tcell.Button2
+	}
+}
+
 // menuItemSkippable reports whether an item must be skipped by keyboard/
 // mouse selection — a divider, or one whose Enabled predicate says no.
 func menuItemSkippable(it MenuItem) bool {

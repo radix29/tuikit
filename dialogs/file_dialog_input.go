@@ -188,11 +188,13 @@ func (d *FileDialog) HandleMouse(ev *tcell.EventMouse) bool {
 				return true
 			}
 			if idx := d.scroll + (my - lr.Y); idx >= 0 && idx < len(d.entries) {
-				same := idx == d.sel
+				// A double-click opens, not a click on the selected row: the
+				// listing opens with ".." selected, so one click there went up.
+				double := d.clicks.Press(idx, ev.When())
 				d.sel = idx
 				d.setFocus(ffList)
 				d.syncNameFromSelection()
-				if same {
+				if double {
 					d.activateSelected()
 				}
 			}

@@ -22,18 +22,18 @@ func newGridForm() *Form {
 }
 
 // A scrollbar drag released over the focused GridRow must still drop the
-// latch. DataGrid.HandleMouse returns true for any release inside its rect,
-// so with the reset below the focused row's dispatch it never ran.
+// gesture. The focused GridRow claims the release that ends its own drag, so a
+// reset below the focused row's dispatch would never run.
 func TestFormScrollbarLatchClearsOnReleaseOverGrid(t *testing.T) {
 	f := newGridForm()
 
 	f.HandleMouse(tcell.NewEventMouse(f.rect.Right()-1, 3, tcell.Button1, tcell.ModNone))
-	if !f.sbDragging {
-		t.Fatal("press on the scrollbar column did not arm sbDragging")
+	if z, held := f.gesture.Owner(); !held || z != formBar {
+		t.Fatal("press on the scrollbar column did not start a thumb drag")
 	}
 	f.HandleMouse(tcell.NewEventMouse(10, 4, tcell.ButtonNone, tcell.ModNone))
-	if f.sbDragging {
-		t.Error("sbDragging still armed after the release landed on the focused GridRow")
+	if _, held := f.gesture.Owner(); held {
+		t.Error("thumb drag still held after the release landed on the focused GridRow")
 	}
 }
 
@@ -77,5 +77,48 @@ func TestFormScrollbarDragReachesBottom(t *testing.T) {
 	f.HandleMouse(tcell.NewEventMouse(f.rect.Right()-1, 0, tcell.Button1, tcell.ModNone))
 	if f.scroll != 0 {
 		t.Errorf("drag back to the track's top left scroll at %d, want 0", f.scroll)
+	}
+}
+
+// A press claims the gesture for its row: a selection drag begun in one
+// GridRow's grid that drifts onto the next GridRow neither moves that grid's
+// selection nor moves focus to it, and a thumb drag dragged below the form
+// still reaches the end.
+func TestFormDragStaysWithTheRowItBeganIn(t *testing.T) {
+	grid := func() *controls.DataGrid {
+		g := controls.NewDataGrid()
+		g.SetData([]string{"A"}, [][]string{{"1"}, {"2"}, {"3"}, {"4"}})
+		g.SetCellCursor(true)
+		return g
+	}
+	g1, g2 := grid(), grid()
+	f := NewForm(NewGridRow(g1, 7), NewGridRow(g2, 7), Note("x"), Note("y"), Note("z"))
+	f.SetBounds(0, 0, 40, 12)
+	f.Focus(true)
+	f.setFocus(0)
+	f.Draw(tuikittest.NewScreen(100, 40))
+	var y2 int
+	for _, b := range f.bands {
+		if b.row == 1 {
+			y2 = b.y
+		}
+	}
+	if y2 == 0 {
+		t.Fatal("second GridRow not drawn")
+	}
+	f.HandleMouse(tcell.NewEventMouse(3, 2, tcell.Button1, tcell.ModNone)) // g1's first data row
+	f.HandleMouse(tcell.NewEventMouse(3, y2+3, tcell.Button1, tcell.ModNone))
+	if r := g2.SelectedRow(); r != 0 {
+		t.Errorf("g2 selected row = %d after a drag from g1 crossed it, want 0", r)
+	}
+	if f.focus != 0 {
+		t.Errorf("focus = %d after a drag from row 0 crossed row 1, want 0", f.focus)
+	}
+	f.HandleMouse(tcell.NewEventMouse(3, 30, tcell.ButtonNone, tcell.ModNone))
+
+	f.HandleMouse(tcell.NewEventMouse(f.rect.Right()-1, 0, tcell.Button1, tcell.ModNone))
+	f.HandleMouse(tcell.NewEventMouse(5, 40, tcell.Button1, tcell.ModNone))
+	if want := f.maxScroll(f.contentWidth()); f.scroll != want {
+		t.Errorf("scroll = %d after dragging the thumb below the form, want %d", f.scroll, want)
 	}
 }

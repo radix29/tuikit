@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v3"
+	"github.com/radix29/tuikit/tuikittest"
 )
 
 func newTestToolbar(action func()) *Toolbar {
@@ -209,5 +210,28 @@ func TestToolbarHiddenButtonIsNotClickable(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Errorf("hidden button fired %d times", calls)
+	}
+}
+
+// TestToolbarSetButtonsWithMoreButtonsLaysOutAtOnce: SetButtons kept the old
+// starts/widths, and Draw and HandleMouse indexed them by the new count.
+func TestToolbarSetButtonsWithMoreButtonsLaysOutAtOnce(t *testing.T) {
+	tb := newTestToolbar(nil)
+	tb.SetButtons(mainToolbarShape())
+	if len(tb.widths) != len(tb.buttons) || len(tb.starts) != len(tb.buttons) {
+		t.Fatalf("layout has %d widths, %d starts for %d buttons", len(tb.widths), len(tb.starts), len(tb.buttons))
+	}
+	tb.Draw(tuikittest.NewScreen(80, 3))                                       // must not panic
+	tb.HandleMouse(tcell.NewEventMouse(7, 0, tcell.ButtonNone, tcell.ModNone)) // nor this
+}
+
+// TestToolbarSetButtonsBeforeSetBoundsDrawsNothing: with no row yet, nothing is
+// shown, and Draw does not index an empty layout.
+func TestToolbarSetButtonsBeforeSetBoundsDrawsNothing(t *testing.T) {
+	tb := NewToolbar()
+	tb.SetButtons(mainToolbarShape())
+	tb.Draw(tuikittest.NewScreen(80, 3))
+	if tb.rect.W != 0 {
+		t.Fatalf("toolbar width = %d before any SetBounds, want 0", tb.rect.W)
 	}
 }
