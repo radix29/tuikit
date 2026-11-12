@@ -1,0 +1,14 @@
+package widgets
+
+import (
+	"github.com/gdamore/tcell/v3"
+	"github.com/radix29/tuikit/core"
+	"github.com/radix29/tuikit/theme"
+)
+
+// drawLabel draws a widget's inline label in the standard dialog text style
+// (currently only DropDown uses it).
+func drawLabel(s tcell.Screen, x, y int, label string, p *theme.Palette) {
+	st := theme.StyleDialog()
+	core.DrawText(s, x, y, st, label)
+}
