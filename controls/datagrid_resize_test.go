@@ -166,3 +166,42 @@ func TestColumnResizeWithRowNumbers(t *testing.T) {
 		t.Error("sepColAt hit a separator at the pre-gutter position")
 	}
 }
+
+// TestColumnResizeDragDoesNotRescanRows pins OP3: a separator drag changes an
+// override, not the content, so each motion event reapplies the measured
+// widths. Rescanning cost up to colWidthSampleRows Row() calls per event.
+// A pending RefreshColumnWidths still gets its full measure.
+func TestColumnResizeDragDoesNotRescanRows(t *testing.T) {
+	rows := make([][]string, 50)
+	for i := range rows {
+		rows[i] = []string{strings.Repeat("x", 100), "b"}
+	}
+	counting := &countingRowSource{RowSource: SliceRowSource(rows)}
+	g := NewDataGrid()
+	g.SetBounds(0, 0, 60, 10)
+	g.SetMaxCellWidth(10)
+	g.SetSource([]string{"A", "B"}, counting)
+	g.computeColWidths() // settle SetMaxCellWidth's pending recompute
+	base := counting.calls
+
+	press(g, 9)
+	for x := 10; x < 30; x++ {
+		g.HandleMouse(tcell.NewEventMouse(x, 0, tcell.Button1, tcell.ModNone))
+	}
+	release(g, 29)
+	if counting.calls != base {
+		t.Errorf("a 20-step drag made %d Row() calls, want 0", counting.calls-base)
+	}
+	if g.colWidths[0] != 30 || g.colWidths[1] != 6 {
+		t.Errorf("colWidths = %v after the drag, want [30 6]", g.colWidths)
+	}
+
+	g.RefreshColumnWidths()
+	g.SetColumnWidth(0, 12)
+	if counting.calls == base {
+		t.Error("SetColumnWidth with a refresh pending reused stale widths")
+	}
+	if g.colWidths[0] != 12 {
+		t.Errorf("colWidths[0] = %d, want 12", g.colWidths[0])
+	}
+}

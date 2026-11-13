@@ -187,11 +187,11 @@ func TestDataGridRightClickShowsContextMenu(t *testing.T) {
 	if row, col := g.SelectedCell(); row != 1 || col != 1 {
 		t.Fatalf("right-click should select the cell = (%d,%d), want (1,1)", row, col)
 	}
-	if len(g.ctxMenu.items) != 1 || g.ctxMenu.items[0].Label != Strings.ShowValue {
-		t.Fatalf("context menu items = %+v, want a single %q item", g.ctxMenu.items, Strings.ShowValue)
+	if len(g.ctxMenu.Items()) != 1 || g.ctxMenu.Items()[0].Label != Strings.ShowValue {
+		t.Fatalf("context menu items = %+v, want a single %q item", g.ctxMenu.Items(), Strings.ShowValue)
 	}
 
-	g.ctxMenu.items[0].Action()
+	g.ctxMenu.Items()[0].Action()
 	if !g.viewer.open {
 		t.Fatal("activating \"Show Value\" should open the content viewer")
 	}
@@ -227,8 +227,8 @@ func TestDataGridCtrlSpaceShowsContextMenu(t *testing.T) {
 	if !g.ctxMenu.OverlayActive() {
 		t.Fatal("Ctrl+Space on a read-only cell should show a context menu")
 	}
-	if len(g.ctxMenu.items) != 1 || g.ctxMenu.items[0].Label != Strings.ShowValue {
-		t.Fatalf("context menu items = %+v, want a single %q item", g.ctxMenu.items, Strings.ShowValue)
+	if len(g.ctxMenu.Items()) != 1 || g.ctxMenu.Items()[0].Label != Strings.ShowValue {
+		t.Fatalf("context menu items = %+v, want a single %q item", g.ctxMenu.Items(), Strings.ShowValue)
 	}
 
 	g2 := newCellCursorGrid()
@@ -362,7 +362,7 @@ func TestDataGridRightClickBlockSelectionCopy(t *testing.T) {
 	if !g.blockSelecting {
 		t.Fatal("right-clicking inside an existing block selection should preserve it")
 	}
-	items := g.ctxMenu.items
+	items := g.ctxMenu.Items()
 	if len(items) != 1 || items[0].Label != "Copy" {
 		t.Fatalf("context menu items = %+v, want a single \"Copy\" item", items)
 	}
@@ -385,7 +385,7 @@ func TestDataGridRightClickBlockSelectionCopy(t *testing.T) {
 	if row, col := g.SelectedCell(); row != 2 || col != 1 {
 		t.Fatalf("SelectedCell() after outside right-click = (%d,%d), want (2,1)", row, col)
 	}
-	items = g.ctxMenu.items
+	items = g.ctxMenu.Items()
 	if len(items) != 2 || items[0].Label != "Copy" || items[1].Label != Strings.ShowValue {
 		t.Fatalf("context menu items = %+v, want [Copy, %s]", items, Strings.ShowValue)
 	}
@@ -411,7 +411,7 @@ func TestDataGridGutterHeaderRightClickOffersCopyAll(t *testing.T) {
 	if !g.ctxMenu.OverlayActive() {
 		t.Fatal("gutter header right-click should show a menu once OnCopyRequest is wired")
 	}
-	items := g.ctxMenu.items
+	items := g.ctxMenu.Items()
 	if len(items) != 2 || items[0].Label != "Copy All" || items[1].Label != "Copy All with Headers" {
 		t.Fatalf("context menu items = %+v, want [Copy All, Copy All with Headers]", items)
 	}
@@ -440,20 +440,20 @@ func TestDataGridGutterHeaderMenuAppendsHostItems(t *testing.T) {
 	g.OnGridMenuItems = func() []MenuItem { return []MenuItem{{Label: "Export Results"}} }
 
 	rightClick()
-	if items := g.ctxMenu.items; !g.ctxMenu.OverlayActive() || len(items) != 1 || items[0].Label != "Export Results" {
+	if items := g.ctxMenu.Items(); !g.ctxMenu.OverlayActive() || len(items) != 1 || items[0].Label != "Export Results" {
 		t.Fatalf("without OnCopyRequest: visible %v, items %+v, want [Export Results]", g.ctxMenu.OverlayActive(), items)
 	}
 
 	g.OnCopyRequest = func(string) {}
 	rightClick()
-	items := g.ctxMenu.items
+	items := g.ctxMenu.Items()
 	if len(items) != 4 || items[1].Label != "Copy All with Headers" || !items[2].Divider || items[3].Label != "Export Results" {
 		t.Fatalf("items = %+v, want [Copy All, Copy All with Headers, ─, Export Results]", items)
 	}
 
 	g.SetBrowseOnly(true)
 	rightClick()
-	if items := g.ctxMenu.items; len(items) != 2 {
+	if items := g.ctxMenu.Items(); len(items) != 2 {
 		t.Errorf("browse-only items = %+v, want the two Copy All entries only", items)
 	}
 }
@@ -522,17 +522,17 @@ func TestHostMenuItemsJoinTheCellMenu(t *testing.T) {
 	y := g.rect.Y + 2 + 1
 	g.HandleMouse(tcell.NewEventMouse(x, y, tcell.Button2, tcell.ModNone))
 
-	if len(g.ctxMenu.items) != 3 {
-		t.Fatalf("menu items = %+v, want Show Value, a divider and the host's entry", g.ctxMenu.items)
+	if len(g.ctxMenu.Items()) != 3 {
+		t.Fatalf("menu items = %+v, want Show Value, a divider and the host's entry", g.ctxMenu.Items())
 	}
-	if g.ctxMenu.items[0].Label != Strings.ShowValue {
-		t.Errorf("first item = %q, want the built-in %q still first", g.ctxMenu.items[0].Label, Strings.ShowValue)
+	if g.ctxMenu.Items()[0].Label != Strings.ShowValue {
+		t.Errorf("first item = %q, want the built-in %q still first", g.ctxMenu.Items()[0].Label, Strings.ShowValue)
 	}
-	if !g.ctxMenu.items[1].Divider {
+	if !g.ctxMenu.Items()[1].Divider {
 		t.Error("the host's entries are not separated from the built-in ones")
 	}
-	if g.ctxMenu.items[2].Label != "Delete..." {
-		t.Errorf("last item = %q, want the host's entry", g.ctxMenu.items[2].Label)
+	if g.ctxMenu.Items()[2].Label != "Delete..." {
+		t.Errorf("last item = %q, want the host's entry", g.ctxMenu.Items()[2].Label)
 	}
 
 	// Asked again on the next opening, not cached: the entry describes the
@@ -553,7 +553,7 @@ func TestAHostContributingNothingLeavesTheMenuAlone(t *testing.T) {
 	g := newCellCursorGrid()
 	g.OnMenuItems = func() []MenuItem { return nil }
 	g.HandleKey(tcell.NewEventKey(tcell.KeyRune, " ", tcell.ModCtrl))
-	if len(g.ctxMenu.items) != 1 || g.ctxMenu.items[0].Label != Strings.ShowValue {
-		t.Fatalf("menu items = %+v, want the built-in entry alone", g.ctxMenu.items)
+	if len(g.ctxMenu.Items()) != 1 || g.ctxMenu.Items()[0].Label != Strings.ShowValue {
+		t.Fatalf("menu items = %+v, want the built-in entry alone", g.ctxMenu.Items())
 	}
 }

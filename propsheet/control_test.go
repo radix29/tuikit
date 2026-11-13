@@ -184,3 +184,38 @@ func TestContractNavKeysOnEmptyContentKeepDrawWorking(t *testing.T) {
 		}
 	}
 }
+
+// SetBounds with the same rect changes nothing; a taller one pulls a form
+// scrolled to its end back inside the content without moving focus (IN3).
+func TestContractFormSetBoundsKeepsFocusAndScrollInContent(t *testing.T) {
+	mk := func() *Form {
+		var rows []Row
+		for i := range 30 {
+			rows = append(rows, Text(fmt.Sprintf("Row %d", i), "v", 10))
+		}
+		f := NewForm(rows...)
+		f.SetBounds(0, 0, 60, 10)
+		f.Focus(true)
+		for range 29 {
+			f.HandleKey(tuikittest.Key(tcell.KeyDown, tcell.ModNone))
+		}
+		f.Draw(tuikittest.NewScreen(60, 10))
+		return f
+	}
+	f := mk()
+	focus, scroll := f.FocusedRow(), f.scroll
+	if scroll == 0 {
+		t.Fatal("setup: the form did not scroll")
+	}
+	f.SetBounds(0, 0, 60, 10)
+	if f.FocusedRow() != focus || f.scroll != scroll {
+		t.Fatalf("same rect: focus %d scroll %d, want %d %d", f.FocusedRow(), f.scroll, focus, scroll)
+	}
+	f.SetBounds(0, 0, 60, 25)
+	if f.FocusedRow() != focus {
+		t.Errorf("taller rect moved focus %d -> %d", focus, f.FocusedRow())
+	}
+	if want := f.maxScroll(f.contentWidth()); f.scroll > want {
+		t.Errorf("taller rect left scroll %d past the content (max %d)", f.scroll, want)
+	}
+}

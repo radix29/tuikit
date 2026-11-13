@@ -13,11 +13,6 @@ import (
 const valueViewerW = 60
 const valueViewerLines = 8
 
-// valueViewerDimNum/valueViewerDimDen fade the screen behind the popup toward
-// DialogOverlay. Duplicates dialogs.ModalDialog's dialogDimNum/Den, since
-// controls must not depend on dialogs.
-const valueViewerDimNum, valueViewerDimDen = 3, 5
-
 // ValueViewer is a modal popup showing one value in full: a read-only,
 // word-wrapped Editor (navigable, selectable, copyable) in a titled box over the
 // dimmed screen, with a hint and a "[ Close ]" button on its last row. DataGrid
@@ -102,7 +97,7 @@ func (v *ValueViewer) DrawOverlay(s tcell.Screen) {
 	rect := core.Rect{X: x, Y: y, W: w, H: h}
 
 	p := theme.Active()
-	core.DimArea(s, core.Rect{X: 0, Y: 0, W: sw, H: sh}, p.DialogOverlay, valueViewerDimNum, valueViewerDimDen)
+	core.DimBehindPopup(s, p.DialogOverlay)
 	core.FillRect(s, rect, ' ', theme.StyleDialog())
 	borderSt := theme.On(p.DialogBg, p.DialogBorder)
 	titleSt := theme.On(p.DialogBg, p.DialogTitle).Bold(true)

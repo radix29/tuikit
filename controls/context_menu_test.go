@@ -103,20 +103,20 @@ func TestContextMenuClickOnDisabledItemDoesNotFireButCloses(t *testing.T) {
 func TestContextMenuHoverDoesNotSelectDisabledItem(t *testing.T) {
 	var calls int
 	cm := newTestContextMenuWithDisabled(&calls)
-	cm.hover = 1 // "Middle"
+	cm.menu.root().hover = 1 // "Middle"
 
 	// Hover over "Last" (index 2, disabled), drawn at row drawnY+1+2 = 3.
 	cm.HandleMouse(tcell.NewEventMouse(2, 3, tcell.ButtonNone, tcell.ModNone))
 
-	if cm.hover != 1 {
-		t.Fatalf("hover = %d after hovering a disabled item, want 1 (unchanged, still \"Middle\")", cm.hover)
+	if cm.menu.root().hover != 1 {
+		t.Fatalf("hover = %d after hovering a disabled item, want 1 (unchanged, still \"Middle\")", cm.menu.root().hover)
 	}
 }
 
 func TestContextMenuEnterOnDisabledItemDoesNotFire(t *testing.T) {
 	var calls int
 	cm := newTestContextMenuWithDisabled(&calls)
-	cm.hover = 0 // force onto the disabled "First", bypassing normal nav
+	cm.menu.root().hover = 0 // force onto the disabled "First", bypassing normal nav
 
 	cm.HandleKey(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
 
@@ -131,16 +131,16 @@ func TestContextMenuEnterOnDisabledItemDoesNotFire(t *testing.T) {
 func TestContextMenuKeyDownSkipsDisabledItemToNextEnabled(t *testing.T) {
 	var calls int
 	cm := newTestContextMenuWithDisabled(&calls)
-	cm.hover = -1
+	cm.menu.root().hover = -1
 
 	cm.HandleKey(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-	if cm.hover != 1 {
-		t.Fatalf("hover = %d after first KeyDown, want 1 (\"Middle\", skipping disabled \"First\")", cm.hover)
+	if cm.menu.root().hover != 1 {
+		t.Fatalf("hover = %d after first KeyDown, want 1 (\"Middle\", skipping disabled \"First\")", cm.menu.root().hover)
 	}
 
 	cm.HandleKey(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-	if cm.hover != 1 {
-		t.Fatalf("hover = %d after second KeyDown, want 1 (\"Middle\" again — both neighbors are disabled)", cm.hover)
+	if cm.menu.root().hover != 1 {
+		t.Fatalf("hover = %d after second KeyDown, want 1 (\"Middle\" again — both neighbors are disabled)", cm.menu.root().hover)
 	}
 }
 
@@ -238,20 +238,20 @@ func TestContextMenuSetHoverRestoresTheCursor(t *testing.T) {
 	})
 
 	cm.SetHover(2)
-	if cm.hover != 2 {
-		t.Fatalf("hover = %d after SetHover(2), want 2", cm.hover)
+	if cm.menu.root().hover != 2 {
+		t.Fatalf("hover = %d after SetHover(2), want 2", cm.menu.root().hover)
 	}
 	cm.SetHover(1) // a divider
-	if cm.hover != 2 {
-		t.Errorf("SetHover(divider) moved the cursor to %d", cm.hover)
+	if cm.menu.root().hover != 2 {
+		t.Errorf("SetHover(divider) moved the cursor to %d", cm.menu.root().hover)
 	}
 	cm.SetHover(3) // disabled
-	if cm.hover != 2 {
-		t.Errorf("SetHover(disabled item) moved the cursor to %d", cm.hover)
+	if cm.menu.root().hover != 2 {
+		t.Errorf("SetHover(disabled item) moved the cursor to %d", cm.menu.root().hover)
 	}
 	cm.SetHover(99)
-	if cm.hover != 2 {
-		t.Errorf("SetHover(out of range) moved the cursor to %d", cm.hover)
+	if cm.menu.root().hover != 2 {
+		t.Errorf("SetHover(out of range) moved the cursor to %d", cm.menu.root().hover)
 	}
 }
 
@@ -269,13 +269,13 @@ func TestContextMenuUpFromNothingHighlightsTheLastItem(t *testing.T) {
 	cm := &ContextMenu{}
 	cm.Show(0, 0, items)
 	cm.HandleKey(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
-	if cm.hover != 4 {
-		t.Fatalf("Up from nothing highlighted: hover = %d, want 4 (Properties)", cm.hover)
+	if cm.menu.root().hover != 4 {
+		t.Fatalf("Up from nothing highlighted: hover = %d, want 4 (Properties)", cm.menu.root().hover)
 	}
 	cm.Show(0, 0, items)
 	cm.HandleKey(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-	if cm.hover != 0 {
-		t.Fatalf("Down from nothing highlighted: hover = %d, want 0 (New Query)", cm.hover)
+	if cm.menu.root().hover != 0 {
+		t.Fatalf("Down from nothing highlighted: hover = %d, want 0 (New Query)", cm.menu.root().hover)
 	}
 }
 

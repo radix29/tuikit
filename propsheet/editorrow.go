@@ -158,42 +158,21 @@ func (r *EditorRow) Draw(s tcell.Screen, focused bool) {
 	r.ed.Draw(s)
 }
 
-// HandleKey forwards to the editor, translating the keys a Form needs back for
-// its navigation, as GridRow does for DataGrid and for the same reason: Editor
-// answers true to Up at the first line, Down at the last and Tab (which it
-// indents with), so forwarding its answer verbatim makes the box a keyboard trap
-// escapable only by mouse.
+// HandleKey forwards to the editor, whose answer is false for a key it could
+// not act on (Up at the first line, Down at the last; Editor.HandleKey), so
+// Form's focus movement still works from the box.
 //
 // Tab and Backtab are never forwarded: they are the way out of every other
 // field, so indenting with them would cost the row its only unconditional exit.
-// Movement keys are forwarded and the result measured (what actually moved,
-// never what should have), so a key ignored at a boundary falls through to Form.
 func (r *EditorRow) HandleKey(ev *tcell.EventKey) bool {
 	switch ev.Key() {
 	case tcell.KeyTab, tcell.KeyBacktab:
 		return false
-	case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight, tcell.KeyPgUp, tcell.KeyPgDn:
-	default:
-		ver := r.version()
-		handled := r.ed.HandleKey(ev)
-		r.notifyChanged(ver)
-		return handled
 	}
-	row, col := r.ed.CursorPos()
-	srow, scol := r.ed.ScrollPos()
 	ver := r.version()
-	if !r.ed.HandleKey(ev) {
-		return false
-	}
-	if r.version() != ver {
-		// Ctrl+Shift+Up/Down move lines rather than the caret: the text changed even
-		// where the caret did not, so the key was acted on either way.
-		r.notifyChanged(ver)
-		return true
-	}
-	nrow, ncol := r.ed.CursorPos()
-	nsrow, nscol := r.ed.ScrollPos()
-	return nrow != row || ncol != col || nsrow != srow || nscol != scol
+	handled := r.ed.HandleKey(ev)
+	r.notifyChanged(ver)
+	return handled
 }
 
 func (r *EditorRow) HandleMouse(ev *tcell.EventMouse) bool {

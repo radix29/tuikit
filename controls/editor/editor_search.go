@@ -54,7 +54,6 @@ type editorSearch struct {
 	cur        int // index into matches, or -1 when nothing is current
 	scanned    bool
 	scanVer    uint64
-	scanLen    int
 	scanDocPtr *Document
 
 	// selStart/selEnd bound an InSelection ReplaceAll, captured at SetSearch time
@@ -114,11 +113,13 @@ func (e *Editor) SearchOpts() SearchOptions { return e.search.opts }
 // Typing with a search active is the hot path: nothing clears the search when the
 // Find dialog closes (F3 must keep working, SSMS parity), so every keystroke for
 // the rest of the panel's life lands here through Draw. A full rescan is a regexp
-// sweep over every line (123ms on a 20,000-line script), so a one-line edit
-// resumes instead, as prefixStates.at does: the cache is exactly one version
-// behind and the mutation touched exactly one line without changing the line
-// count, so every other match keeps its row and only that line's run is re-scanned
-// and spliced in. Anything else does the full scan.
+// sweep over every line (123ms on a 20,000-line script), so an edit resumes
+// instead, as rewrapSpan does for wrap segments: Document.changedSince names the
+// lines the edits since the last scan touched, only those are re-scanned, and the
+// matches below them are renumbered by the change in line count. Resuming only on
+// a same-line-count edit cost a full rescan per Enter (132 ms at 20,000 lines).
+// An edit changedSince can't describe, or a different document, does the full
+// scan.
 func (e *Editor) scanMatches() []searchMatch {
 	s := &e.search
 	if s.re == nil {
@@ -126,18 +127,16 @@ func (e *Editor) scanMatches() []searchMatch {
 	}
 	doc := e.doc
 	switch {
-	case !s.scanned || s.scanDocPtr != doc || s.scanLen != doc.Len():
-		// A different document, or one that grew or shrank: matches are indexed by row,
-		// so a changed line count invalidates every row below the edit.
+	case !s.scanned || s.scanDocPtr != doc:
 		s.fullScan(doc)
 	case s.scanVer == doc.Version():
 		// Nothing has changed since the last scan.
-	case s.scanVer+1 == doc.Version() && doc.dirtyTo == doc.dirtyFrom+1:
-		// Exactly one mutation since, a single-line setLine (typing's path): only that
-		// row's matches can have moved.
-		s.rescanLine(doc, doc.dirtyFrom)
 	default:
-		s.fullScan(doc)
+		if row, oldN, newN, ok := doc.changedSince(s.scanVer); ok {
+			s.rescanSpan(doc, row, oldN, newN)
+		} else {
+			s.fullScan(doc)
+		}
 	}
 	return s.matches
 }
@@ -151,20 +150,31 @@ func (s *editorSearch) fullScan(doc *Document) {
 	s.stamp(doc)
 }
 
-// rescanLine replaces row's run of matches in place, leaving every other row's
-// entries and indices. The list stays sorted by row (matchSpansForLine's binary
-// search and FindNext's ordering depend on it) because the replacement occupies
-// exactly the old run's position.
-func (s *editorSearch) rescanLine(doc *Document, row int) {
-	start, end := rowRange(s.matches, row)
-	fresh := s.appendLineMatches(nil, row, string(doc.Line(row)))
+// rescanSpan updates the match list for a change in changedSince's terms: the
+// matches on scanned lines [row, row+oldN) are replaced by fresh ones from the
+// current lines [row, row+newN), and later matches are renumbered by the change
+// in line count. The list stays sorted by row (matchSpansForLine's binary search
+// and FindNext's ordering depend on it) because the replacement occupies exactly
+// the old span's position.
+func (s *editorSearch) rescanSpan(doc *Document, row, oldN, newN int) {
+	start, _ := rowRange(s.matches, row)
+	end, _ := rowRange(s.matches, row+oldN)
+	var fresh []searchMatch
+	for li := row; li < row+newN; li++ {
+		fresh = s.appendLineMatches(fresh, li, string(doc.Line(li)))
+	}
 	s.matches = slices.Replace(s.matches, start, end, fresh...)
+	if d := newN - oldN; d != 0 {
+		for i := start + len(fresh); i < len(s.matches); i++ {
+			s.matches[i].row += d
+		}
+	}
 	s.stamp(doc)
 }
 
 // stamp records which document and version the match list now describes.
 func (s *editorSearch) stamp(doc *Document) {
-	s.scanned, s.scanVer, s.scanLen, s.scanDocPtr = true, doc.Version(), doc.Len(), doc
+	s.scanned, s.scanVer, s.scanDocPtr = true, doc.Version(), doc
 }
 
 // appendLineMatches appends every match on one line's text to dst.

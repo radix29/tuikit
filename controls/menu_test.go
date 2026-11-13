@@ -126,8 +126,8 @@ func TestMenuBarOnBeforeOpenRebuildsItemsBeforeTheyAreRead(t *testing.T) {
 		}
 		// selectedItem is read from the rebuilt items: 1 skips the new disabled
 		// first row, where the stale list would have given 0.
-		if mb.selectedItem != 1 || mb.menus[0].Items[1].Label != "Fresh" {
-			t.Errorf("%s: selectedItem = %d over %v, want 1 over the rebuilt items", open.name, mb.selectedItem, mb.menus[0].Items)
+		if mb.menu.root().hover != 1 || mb.menus[0].Items[1].Label != "Fresh" {
+			t.Errorf("%s: selectedItem = %d over %v, want 1 over the rebuilt items", open.name, mb.menu.root().hover, mb.menus[0].Items)
 		}
 		// Moving within an open dropdown is not an open.
 		mb.HandleKey(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
@@ -171,8 +171,8 @@ func TestMenuBarOpenSkipsDisabledFirstItem(t *testing.T) {
 	mb := newTestMenuBarWithDisabled(new(int))
 	mb.Open()
 
-	if mb.selectedItem != 1 {
-		t.Fatalf("selectedItem = %d after Open(), want 1 (\"Middle\", skipping the disabled \"First\")", mb.selectedItem)
+	if mb.menu.root().hover != 1 {
+		t.Fatalf("selectedItem = %d after Open(), want 1 (\"Middle\", skipping the disabled \"First\")", mb.menu.root().hover)
 	}
 }
 
@@ -181,13 +181,13 @@ func TestMenuBarKeyDownAndUpWrapSkippingDisabledItems(t *testing.T) {
 	mb.Open() // selects "Middle" (index 1)
 
 	mb.HandleKey(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-	if mb.selectedItem != 1 {
-		t.Fatalf("selectedItem = %d after KeyDown, want 1 (\"Middle\" again — both neighbors are disabled)", mb.selectedItem)
+	if mb.menu.root().hover != 1 {
+		t.Fatalf("selectedItem = %d after KeyDown, want 1 (\"Middle\" again — both neighbors are disabled)", mb.menu.root().hover)
 	}
 
 	mb.HandleKey(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
-	if mb.selectedItem != 1 {
-		t.Fatalf("selectedItem = %d after KeyUp, want 1 (\"Middle\" again — both neighbors are disabled)", mb.selectedItem)
+	if mb.menu.root().hover != 1 {
+		t.Fatalf("selectedItem = %d after KeyUp, want 1 (\"Middle\" again — both neighbors are disabled)", mb.menu.root().hover)
 	}
 }
 
@@ -208,13 +208,13 @@ func TestMenuBarKeyDownSkipsDisabledItemToNextEnabled(t *testing.T) {
 	mb.Open() // selects "B" (index 1)
 
 	mb.HandleKey(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
-	if mb.selectedItem != 3 {
-		t.Fatalf("selectedItem = %d after KeyDown from \"B\", want 3 (\"D\", skipping disabled \"C\")", mb.selectedItem)
+	if mb.menu.root().hover != 3 {
+		t.Fatalf("selectedItem = %d after KeyDown from \"B\", want 3 (\"D\", skipping disabled \"C\")", mb.menu.root().hover)
 	}
 
 	mb.HandleKey(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
-	if mb.selectedItem != 1 {
-		t.Fatalf("selectedItem = %d after KeyUp from \"D\", want 1 (\"B\", skipping disabled \"C\")", mb.selectedItem)
+	if mb.menu.root().hover != 1 {
+		t.Fatalf("selectedItem = %d after KeyUp from \"D\", want 1 (\"B\", skipping disabled \"C\")", mb.menu.root().hover)
 	}
 }
 
@@ -222,7 +222,7 @@ func TestMenuBarEnterOnDisabledItemDoesNotFireButCloses(t *testing.T) {
 	var calls int
 	mb := newTestMenuBarWithDisabled(&calls)
 	mb.Open()
-	mb.selectedItem = 0 // force onto the disabled "First", bypassing normal nav
+	mb.menu.root().hover = 0 // force onto the disabled "First", bypassing normal nav
 
 	mb.HandleKey(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
 
@@ -257,8 +257,8 @@ func TestMenuBarHoverDoesNotSelectDisabledItem(t *testing.T) {
 	// Hover over "Last" (index 2), which is disabled.
 	mb.HandleMouse(tcell.NewEventMouse(2, itemRowY(2), tcell.ButtonNone, tcell.ModNone))
 
-	if mb.selectedItem != 1 {
-		t.Fatalf("selectedItem = %d after hovering a disabled item, want 1 (unchanged, still \"Middle\")", mb.selectedItem)
+	if mb.menu.root().hover != 1 {
+		t.Fatalf("selectedItem = %d after hovering a disabled item, want 1 (unchanged, still \"Middle\")", mb.menu.root().hover)
 	}
 }
 
@@ -387,12 +387,12 @@ func TestMenuBarSetMenusClampsTheHighlight(t *testing.T) {
 	mb := newTestMenuBar()
 	mb.Open()
 	mb.HandleKey(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone)) // Exit, row 1
-	if mb.selectedItem != 1 {
-		t.Fatalf("selectedItem = %d, want 1", mb.selectedItem)
+	if mb.menu.root().hover != 1 {
+		t.Fatalf("selectedItem = %d, want 1", mb.menu.root().hover)
 	}
 	mb.SetMenus([]Menu{{Label: "File", Items: []MenuItem{{Label: "Open"}}}})
-	if !mb.OverlayActive() || mb.selectedItem != 0 {
-		t.Fatalf("open = %v, selectedItem = %d; want open on row 0", mb.OverlayActive(), mb.selectedItem)
+	if !mb.OverlayActive() || mb.menu.root().hover != 0 {
+		t.Fatalf("open = %v, selectedItem = %d; want open on row 0", mb.OverlayActive(), mb.menu.root().hover)
 	}
 	mb.DrawOverlay(tuikittest.NewScreen(40, 10))
 	mb.HandleKey(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone)) // must not panic

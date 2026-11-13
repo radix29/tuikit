@@ -28,9 +28,9 @@ func (d *FileDialog) Draw(s tcell.Screen) {
 	headerY := inner.Y + 2
 	headerStyle := theme.StyleGridHeader()
 	core.FillRect(s, core.Rect{X: contentX, Y: headerY, W: contentW, H: 1}, ' ', headerStyle)
-	core.DrawTextClipped(s, contentX, headerY, nameColW, headerStyle, "Name")
-	core.DrawTextRight(s, contentX+nameColW+1, headerY, fileSizeColW, headerStyle, "Size")
-	core.DrawTextRight(s, contentX+nameColW+1+fileSizeColW+1, headerY, fileModColW, headerStyle, "Modified")
+	core.DrawTextClipped(s, contentX, headerY, nameColW, headerStyle, Strings.NameCol)
+	core.DrawTextRight(s, contentX+nameColW+1, headerY, fileSizeColW, headerStyle, Strings.SizeCol)
+	core.DrawTextRight(s, contentX+nameColW+1+fileSizeColW+1, headerY, fileModColW, headerStyle, Strings.ModCol)
 
 	sepStyle := theme.StyleDialogLine()
 	core.DrawHLine(s, contentX, inner.Y+3, contentW, sepStyle)
@@ -110,7 +110,7 @@ func (d *FileDialog) drawEntry(s tcell.Screen, y, x, nameColW, idx int) {
 	sizeText := ""
 	switch {
 	case e.IsDir:
-		sizeText = "DIR"
+		sizeText = Strings.DirSize
 	case !e.SizeUnknown:
 		sizeText = formatFileSize(e.Size)
 	}

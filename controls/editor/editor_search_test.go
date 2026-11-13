@@ -488,26 +488,45 @@ func TestSearchIncrementalScanMatchesFullScan(t *testing.T) {
 	}
 }
 
-// TestSearchResumesOnSingleLineEdit pins the resume path itself: the
-// differential test above passes whether or not a single-line edit takes it,
-// since the full scan is always correct. A typing edit must not fall back.
-func TestSearchResumesOnSingleLineEdit(t *testing.T) {
-	e := newTestEditor("col1 a\ncol1 b\ncol1 c")
-	setSearch(t, e, SearchOptions{Query: "col1"})
-	e.scanMatches()
-
-	for _, row := range []int{0, 1, 2} {
-		e.cursorRow, e.cursorCol = row, 6
-		e.insertRune('x')
-		if e.doc.dirtyTo != e.doc.dirtyFrom+1 || e.doc.dirtyFrom != row {
-			t.Fatalf("row %d: dirty range [%d,%d), want [%d,%d) — typing must be a single-line setLine",
-				row, e.doc.dirtyFrom, e.doc.dirtyTo, row, row+1)
-		}
-		if e.search.scanVer+1 != e.doc.Version() || e.search.scanLen != e.doc.Len() {
-			t.Fatalf("row %d: cache is not exactly one version behind (scanVer %d, version %d) — the resume branch is unreachable",
-				row, e.search.scanVer, e.doc.Version())
-		}
+// TestSearchResumesOnEveryDescribableEdit pins the resume path itself: the
+// differential test above passes whether or not an edit takes it, since the full
+// scan is always correct. Row 0 is changed behind the Document's back, so only a
+// full scan would drop its match; an edit below it, line count changed or not,
+// must keep it (OP1: a full scan per Enter cost 132 ms at 20,000 lines).
+func TestSearchResumesOnEveryDescribableEdit(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		do   func(e *Editor)
+	}{
+		{"type", func(e *Editor) { e.cursorRow, e.cursorCol = 2, 6; e.insertRune('x') }},
+		{"Enter", func(e *Editor) { e.cursorRow, e.cursorCol = 2, 2; e.insertNewline() }},
+		{"joining Backspace", func(e *Editor) { e.cursorRow, e.cursorCol = 3, 0; e.backspace() }},
+		{"Enter, then undo", func(e *Editor) { e.cursorRow, e.cursorCol = 2, 2; e.insertNewline(); e.scanMatches(); e.Undo() }},
+	} {
+		e := newTestEditor("col1 a\ncol1 b\ncol1 c\ncol1 d")
+		setSearch(t, e, SearchOptions{Query: "col1"})
 		e.scanMatches()
+		e.doc.lines[0] = []rune("zzzzzz") // unversioned: invisible to a resume
+		tc.do(e)
+		got := e.scanMatches()
+		if len(got) == 0 || got[0].row != 0 {
+			t.Errorf("%s: matches = %v, want the stale row-0 match kept (a full scan dropped it)", tc.name, got)
+		}
+		want := []int{0, 1}
+		for row := range e.doc.Len() {
+			if row > 1 {
+				for range strings.Count(string(e.doc.Line(row)), "col1") {
+					want = append(want, row)
+				}
+			}
+		}
+		var rows []int
+		for _, m := range got {
+			rows = append(rows, m.row)
+		}
+		if !slices.Equal(rows, want) {
+			t.Errorf("%s: match rows = %v, want %v (text %q)", tc.name, rows, want, e.Text())
+		}
 	}
 }
 
@@ -538,6 +557,32 @@ func BenchmarkSearchTypingWithMatches(b *testing.B) {
 				if row >= e.doc.Len() {
 					row = 0
 				}
+			}
+		})
+	}
+}
+
+// BenchmarkSearchEnterWithMatches is BenchmarkSearchTypingWithMatches for a
+// line-count change: Enter, then a joining Backspace, so the document keeps its
+// size. Before the span resume, each was a full sweep (132 ms at 20,000 lines).
+func BenchmarkSearchEnterWithMatches(b *testing.B) {
+	for _, n := range []int{1000, 20000} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			e := NewEditor(nil)
+			e.SetText(benchScript(n))
+			if err := e.SetSearch(SearchOptions{Query: "col1"}); err != nil {
+				b.Fatalf("SetSearch: %v", err)
+			}
+			e.scanMatches()
+			row := 0
+			b.ResetTimer()
+			for b.Loop() {
+				e.cursorRow, e.cursorCol = row, 0
+				e.insertNewline()
+				e.scanMatches()
+				e.backspace()
+				e.scanMatches()
+				row = (row + 1) % (e.doc.Len() - 1)
 			}
 		})
 	}

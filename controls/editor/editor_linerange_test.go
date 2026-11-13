@@ -51,7 +51,7 @@ func TestLineActionsExcludeRowAColumnZeroSelectionEndsOn(t *testing.T) {
 	}{
 		{
 			name: "toggle comment", text: "a\nb\nc\nd", top: 0, bot: 2,
-			act: (*Editor).ToggleLineComments,
+			act: func(e *Editor) { e.SetLineComment("--"); e.ToggleLineComments() },
 			fwd: want{text: "-- a\n-- b\nc\nd", sel: true, anchor: pos{0, 3}, cursor: pos{2, 0}, selected: "a\n-- b\n"},
 			bwd: want{text: "-- a\n-- b\nc\nd", sel: true, anchor: pos{2, 0}, cursor: pos{0, 3}, selected: "a\n-- b\n"},
 		},
@@ -144,6 +144,7 @@ func TestLineActionsKeepRowTheSelectionReaches(t *testing.T) {
 		e := newTestEditor("a\nb\nc\nd")
 		selectLinesByKeys(t, e, 0, 2)
 		e.HandleKey(tuikittest.Key(tcell.KeyRight, tcell.ModShift))
+		e.SetLineComment("--")
 		e.ToggleLineComments()
 		if got, want := e.Text(), "-- a\n-- b\n-- c\nd"; got != want {
 			t.Fatalf("text = %q, want %q", got, want)

@@ -59,11 +59,12 @@ tuikit/
 │               the FileSystem it browses (LocalFileSystem by default; Windows/
 │               Posix path rules for a remote one — see ShowOpenOn/ShowSaveOn,
 │               and BlockingFileSystem for the "Listing ..." repaint);
-│               field_gesture.go (FieldGesture: a dialog's drag latch for an
-│               InputField's text-selection gesture)
+│               field_gesture.go (FieldGesture: a dialog's drag latch for a
+│               gesture begun in one of its controls)
 ├── controls/   MenuBar+ContextMenu, Toolbar, ToolRow, TreeView, DataGrid, ListBox
 │             — menu_bar.go, context_menu.go, menu_item.go (shared types),
-│               menu_cascade.go (submenu chain draw/hit-test/keys for both hosts),
+│               menu_box.go (one box per menu level, root and submenus:
+│               draw, scroll, hit-test, keys for both hosts),
 │               toolbar.go, tool_row.go (a panel's text toolbar: layout,
 │               hit-test, "More ▾"; drawn by the host), treeview.go (with an
 │               optional top-border action, SetTitleButton), listbox.go;
@@ -127,10 +128,9 @@ propsheet        → dialogs, controls, controls/editor, widgets
   `controls.DataGrid`/`ListBox`, `editor.Editor` (EditorRow) and `widgets`.
 - **No language lives here.** A host's language plugs in through `Editor`'s
   hooks: a highlighter keeping its line states through `LineStateAt`,
-  `SetIndentRule`, `SetWordStart`, `SetCompletionTrigger` (goSSMS's T-SQL
-  editor is built this way). The XML and JSON highlighters are here because
-  they are language-neutral. `ToggleLineComments` still hard-codes the `--`
-  prefix.
+  `SetIndentRule`, `SetWordStart`, `SetCompletionTrigger`, `SetLineComment`
+  (goSSMS's T-SQL editor is built this way). The XML and JSON highlighters
+  are here because they are language-neutral.
 
 ## Design principles
 
@@ -239,11 +239,12 @@ each before the first Draw (or, for a runtime change, between frames):
 - `editor.SetDefaultIndentWidth` — the width new Editors start with.
 - `propsheet.ApplyingSpinner` — the button-row busy indicator.
 - `controls.Strings`, `dialogs.Strings`, `propsheet.Strings` — the library's
-  own UI text (button labels, DataGrid's status and menu, the sheet's hints
-  and page states). Controls dispatch on IDs or positions, never on this text,
+  own UI text (button labels, default dialog titles, FileDialog's labels and
+  columns, DataGrid's status and menu, ToolRow's "More", the sheet's hints,
+  page states and `Int` validator). Controls dispatch on IDs or positions, never on this text,
   so a host may translate it. App-specific text is a field instead:
-  `layout.PanelManager.EmptyText`, `dialogs.ProgressDialog.CancellingText`,
-  `PropertySheet.SetHints`.
+  `layout.PanelManager.EmptyText`, `dialogs.ProgressDialog.CancellingText`
+  (seeded from `dialogs.Strings`), `PropertySheet.SetHints`.
 
 ## How an application uses it
 

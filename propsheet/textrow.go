@@ -1,6 +1,7 @@
 package propsheet
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -63,10 +64,10 @@ func Int(label string, value, min, max int64, unit string) *TextRow {
 	r.validate = func(s string) error {
 		n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
 		if err != nil {
-			return fmt.Errorf("must be a whole number")
+			return errors.New(Strings.NotWholeNumber)
 		}
 		if n < min || n > max {
-			return fmt.Errorf("must be between %d and %d", min, max)
+			return fmt.Errorf(Strings.OutOfRange, min, max)
 		}
 		return nil
 	}
@@ -115,7 +116,10 @@ func (r *TextRow) Edit(v string) {
 }
 
 // SetEnabled toggles whether the row can be focused or edited; a disabled row is
-// skipped by Form's focus cycling and drawn dim.
+// drawn dim and skipped by Form's focus cycling. That is Form's exception to
+// "a disabled control keeps its place in the focus ring" (ARCHITECTURE.md §
+// Widgets and grids): Form walks its rows for the next focusable one each
+// time, so skipping renumbers nothing.
 func (r *TextRow) SetEnabled(v bool) {
 	r.enabled = v
 	r.field.SetEnabled(v)

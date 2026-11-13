@@ -71,10 +71,10 @@ type ProgressDialog struct {
 func NewProgressDialog(s tcell.Screen) *ProgressDialog {
 	d := new(ProgressDialog{
 		Spinner:        widgets.SpinnerBraille,
-		ElapsedText:    "Elapsed",
-		CancellingText: "Cancelling — waiting for the operation to stop",
+		ElapsedText:    Strings.Elapsed,
+		CancellingText: Strings.Cancelling,
 	})
-	d.InitModal(s, "Working", progressDialogMinW, progressDialogBaseH)
+	d.InitModal(s, Strings.WorkingTitle, progressDialogMinW, progressDialogBaseH)
 	return d
 }
 

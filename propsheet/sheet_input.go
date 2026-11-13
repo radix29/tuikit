@@ -56,7 +56,7 @@ func (p *PropertySheet) HandleKey(ev *tcell.EventKey) bool {
 		if p.RevertPage(p.current) {
 			p.SetMessage(Strings.Reverted, false)
 		} else {
-			p.SetMessage("Nothing to revert — no unsaved changes on this page.", false)
+			p.SetMessage(Strings.Unchanged, false)
 		}
 		return true
 	}

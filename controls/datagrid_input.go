@@ -7,7 +7,7 @@ import (
 
 // selectionScreenPos returns the screen coordinates of the selected cell, to
 // position the context menu Ctrl+Space opens as a right-click would. "Show
-// Value" needs none (screen-centred). Mirrors drawCellSelection's width walk.
+// Value" needs none (screen-centred). Mirrors drawRow's width walk.
 func (g *DataGrid) selectionScreenPos() (x, y int) {
 	x = g.rect.X + g.gutterWidth()
 	for i := g.scrollCol; i < g.selCol && i < len(g.colWidths); i++ {
@@ -31,7 +31,11 @@ func (g *DataGrid) selectionContains(row, col int) bool {
 // click; Alt+click is delivered.
 const extendSelectionMods = tcell.ModShift | tcell.ModAlt
 
-// HandleKey handles keyboard navigation.
+// HandleKey handles keyboard navigation. It reports true only when the key
+// changed something (selection, scroll, marked rows), fired a callback or opened
+// a popup: an arrow at an edge, PgDn on an empty grid or Enter on a read-only
+// one answer false, so a host (propsheet.Form, a panel's focus cycling) can use
+// the key itself. An open context menu or "Show Value" popup takes every key.
 func (g *DataGrid) HandleKey(ev *tcell.EventKey) bool {
 	if g.ctxMenu.OverlayActive() {
 		g.ctxMenu.HandleKey(ev)
@@ -49,6 +53,29 @@ func (g *DataGrid) HandleKey(ev *tcell.EventKey) bool {
 		g.ctxMenu.Show(x, y, g.cellContextMenuItems())
 		return true
 	}
+	// Detected, never predicted: comparing what the key left behind stays right as
+	// the key handling below changes.
+	before := g.keyState()
+	bound, fired := g.applyKey(ev)
+	return bound && (fired || g.keyState() != before)
+}
+
+// gridKeyState is what HandleKey compares around a key to tell whether it was
+// acted on: everything a navigation key can change that the user can see.
+type gridKeyState struct {
+	selRow, selCol, scrollRow, scrollCol int
+	r0, c0, r1, c1                       int
+	marking                              bool
+}
+
+func (g *DataGrid) keyState() gridKeyState {
+	r0, c0, r1, c1 := g.SelectionBounds()
+	return gridKeyState{g.selRow, g.selCol, g.scrollRow, g.scrollCol, r0, c0, r1, c1, g.marking}
+}
+
+// applyKey acts on a navigation or activation key. bound is false for a key the
+// grid has no binding for; fired is true when it reached OnActivateCell.
+func (g *DataGrid) applyKey(ev *tcell.EventKey) (bound, fired bool) {
 	// Shift+Arrow extends a block selection from the cell the cursor was on, anchor
 	// fixed across repeats; a plain arrow collapses to one cell. Read-only
 	// cell-cursor grids only; see blockSelecting.
@@ -85,38 +112,32 @@ func (g *DataGrid) HandleKey(ev *tcell.EventKey) bool {
 	switch ev.Key() {
 	case tcell.KeyPgUp, tcell.KeyPgDn, tcell.KeyHome, tcell.KeyEnd:
 		if g.rows.Len() == 0 {
-			return true
+			return true, false
 		}
 	}
-	moved := false
+	prevRow := g.selRow
 	switch ev.Key() {
 	case tcell.KeyUp:
 		if g.selRow > 0 {
 			g.selRow--
 			g.ensureVisible(dataH)
-			moved = true
 		}
 	case tcell.KeyDown:
 		if g.selRow < g.rows.Len()-1 {
 			g.selRow++
 			g.ensureVisible(dataH)
-			moved = true
 		}
 	case tcell.KeyPgUp:
 		g.selRow = max(0, g.selRow-dataH)
 		g.ensureVisible(dataH)
-		moved = true
 	case tcell.KeyPgDn:
 		g.selRow = min(g.rows.Len()-1, g.selRow+dataH)
 		g.ensureVisible(dataH)
-		moved = true
 	case tcell.KeyHome:
 		g.selRow, g.scrollRow = 0, 0
-		moved = true
 	case tcell.KeyEnd:
 		g.selRow = g.rows.Len() - 1
 		g.ensureVisible(dataH)
-		moved = true
 	case tcell.KeyLeft:
 		if g.cellCursor {
 			if g.selCol > 0 {
@@ -137,19 +158,20 @@ func (g *DataGrid) HandleKey(ev *tcell.EventKey) bool {
 		}
 	case tcell.KeyEnter:
 		if g.cellCursor && g.rows.Len() > 0 {
-			g.activateCell()
+			fired = g.activateCell()
 		}
 	default:
 		if g.cellCursor && g.rows.Len() > 0 && core.EvRune(ev) == ' ' {
-			g.activateCell()
-			return true
+			return true, g.activateCell()
 		}
-		return false
+		return false, false
 	}
-	if moved && g.OnSelectRow != nil {
+	// Only on an actual move, as a click does: PgUp on the first row reports
+	// nothing to a page that reloads its detail pane per selection.
+	if g.selRow != prevRow && g.OnSelectRow != nil {
 		g.OnSelectRow(g.selRow)
 	}
-	return true
+	return true, fired
 }
 
 // gridZone is the part of the grid a Button1 press began in, which owns every
@@ -257,14 +279,14 @@ func (g *DataGrid) HandleMouse(ev *tcell.EventMouse) bool {
 		// terminals report it that way rather than as WheelLeft/WheelRight; honour both.
 		if ev.Modifiers()&tcell.ModShift != 0 {
 			g.scrollColBy(-horizontalWheelCols)
-		} else if g.scrollRow > 0 {
-			g.scrollRow--
+		} else {
+			g.scrollRow = max(0, g.scrollRow-core.WheelRows)
 		}
 	case tcell.WheelDown:
 		if ev.Modifiers()&tcell.ModShift != 0 {
 			g.scrollColBy(horizontalWheelCols)
-		} else if g.scrollRow < g.rows.Len()-dataH {
-			g.scrollRow++
+		} else {
+			g.scrollRow = max(g.scrollRow, min(g.rows.Len()-dataH, g.scrollRow+core.WheelRows))
 		}
 	case tcell.WheelLeft:
 		g.scrollColBy(-horizontalWheelCols)
@@ -550,8 +572,9 @@ func (g *DataGrid) selectRowsTo(row int) {
 	}
 }
 
-// horizontalWheelCols is how many columns one horizontal wheel tick scrolls,
-// matching the 1-row vertical step.
+// horizontalWheelCols is how many data columns one horizontal wheel tick
+// scrolls. Not core.WheelCells: the grid scrolls sideways by whole columns,
+// which are many cells wide.
 const horizontalWheelCols = 1
 
 // scrollColBy shifts scrollCol by delta (negative scrolls left), clamped
@@ -691,9 +714,11 @@ func (g *DataGrid) rowDoubleClicked(ev *tcell.EventMouse, row int) bool {
 // activateCell fires OnActivateCell for grids with editable cells (toggle grids,
 // permission-state cycling). A grid leaving it nil does nothing here
 // (right-click's "Show Value" opens the viewer), nor does a browse-only grid; see
-// SetBrowseOnly.
-func (g *DataGrid) activateCell() {
-	if g.editable() {
-		g.OnActivateCell(g.selRow, g.selCol)
+// SetBrowseOnly. It reports whether the callback ran.
+func (g *DataGrid) activateCell() bool {
+	if !g.editable() {
+		return false
 	}
+	g.OnActivateCell(g.selRow, g.selCol)
+	return true
 }

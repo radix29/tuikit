@@ -67,7 +67,7 @@ func TestABrowseOnlyGridOffersShowValueButNotTheHostsItems(t *testing.T) {
 		t.Fatal("right-click opened no menu on a browse-only grid")
 	}
 	var labels []string
-	for _, it := range g.ctxMenu.items {
+	for _, it := range g.ctxMenu.Items() {
 		labels = append(labels, it.Label)
 	}
 	if !slices.Contains(labels, Strings.ShowValue) {

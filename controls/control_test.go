@@ -305,3 +305,309 @@ func TestContractNavKeysOnEmptyContentKeepDrawWorking(t *testing.T) {
 		}
 	}
 }
+
+// A key that changes nothing is not claimed (core.KeyHandler): a host falls
+// back to its own navigation only on false, so a control answering true at an
+// edge is a keyboard trap (IN1: propsheet.Form could not leave a grid or a
+// script box by Up/Down). Each control is tried at both ends of its content
+// and empty; the same keys away from the end must be claimed, so the test
+// can't pass by a control that claims nothing.
+func TestContractKeyThatChangesNothingIsNotClaimed(t *testing.T) {
+	up := []tcell.Key{tcell.KeyUp, tcell.KeyPgUp, tcell.KeyHome}
+	down := []tcell.Key{tcell.KeyDown, tcell.KeyPgDn, tcell.KeyEnd}
+	all := append(append(append([]tcell.Key{}, up...), down...), tcell.KeyLeft, tcell.KeyRight, tcell.KeyEnter)
+	type edge struct {
+		name   string
+		mk     func() core.KeyHandler
+		toEnd  []tcell.Key // keys that move a fresh control to the far end
+		atHead []tcell.Key // unclaimed on a fresh control
+		atTail []tcell.Key // unclaimed after toEnd
+	}
+	gridEnd := []tcell.Key{tcell.KeyEnd, tcell.KeyRight, tcell.KeyRight}
+	edges := []edge{
+		// Enter: no OnActivate. Left/Right are not bound.
+		{"ListBox", func() core.KeyHandler { return contractListBox() }, []tcell.Key{tcell.KeyEnd},
+			append(append([]tcell.Key{}, up...), tcell.KeyEnter, tcell.KeyLeft), down},
+		// Left: nothing expanded. Enter and Right: no children, no OnActivate.
+		{"TreeView", func() core.KeyHandler { return contractTreeView() }, []tcell.Key{tcell.KeyEnd},
+			append(append([]tcell.Key{}, up...), tcell.KeyLeft, tcell.KeyRight, tcell.KeyEnter), down},
+		// Enter: a read-only grid activates nothing.
+		{"DataGrid", func() core.KeyHandler { return contractDataGrid() }, gridEnd,
+			append(append([]tcell.Key{}, up...), tcell.KeyLeft, tcell.KeyEnter), append(append([]tcell.Key{}, down...), tcell.KeyRight)},
+		{"DataGrid row mode", func() core.KeyHandler { g := contractDataGrid(); g.SetCellCursor(false); return g }, []tcell.Key{tcell.KeyEnd},
+			append(append([]tcell.Key{}, up...), tcell.KeyLeft, tcell.KeyEnter), down},
+		{"Editor", func() core.KeyHandler { return contractEditor(false) }, nil,
+			append(append([]tcell.Key{}, up...), tcell.KeyLeft), nil},
+		{"Editor wrapped", func() core.KeyHandler { return contractEditor(true) }, nil,
+			append(append([]tcell.Key{}, up...), tcell.KeyLeft), nil},
+		{"ListBox empty", func() core.KeyHandler { return NewListBox() }, nil, all, nil},
+		{"TreeView empty", func() core.KeyHandler { tv := NewTreeView(); tv.SetBounds(0, 0, 40, 10); return tv }, nil, all, nil},
+		{"DataGrid empty", func() core.KeyHandler {
+			g := NewDataGrid()
+			g.SetBounds(0, 0, 40, 10)
+			g.SetData([]string{"A"}, nil)
+			g.SetCellCursor(true)
+			return g
+		}, nil, all, nil},
+	}
+	editorEnd := func(e *editor.Editor) { e.HandleKey(tuikittest.Key(tcell.KeyEnd, tcell.ModCtrl)) }
+	for _, tc := range edges {
+		for _, mod := range []tcell.ModMask{tcell.ModNone, tcell.ModShift} {
+			for _, k := range tc.atHead {
+				if c := tc.mk(); c.HandleKey(tuikittest.Key(k, mod)) {
+					t.Errorf("%s: %v (mod %v) at the start claimed", tc.name, k, mod)
+				}
+			}
+			tail := tc.atTail
+			if _, isEditor := tc.mk().(*editor.Editor); isEditor {
+				tail = append(append([]tcell.Key{}, down...), tcell.KeyRight)
+			}
+			for _, k := range tail {
+				c := tc.mk()
+				if e, ok := c.(*editor.Editor); ok {
+					editorEnd(e)
+				}
+				for _, m := range tc.toEnd {
+					c.HandleKey(tuikittest.Key(m, tcell.ModNone))
+				}
+				if c.HandleKey(tuikittest.Key(k, mod)) {
+					t.Errorf("%s: %v (mod %v) at the end claimed", tc.name, k, mod)
+				}
+			}
+		}
+		// The same control moves on Down from its start, unless it is empty.
+		if len(tc.atTail) > 0 || tc.toEnd == nil && !strings.HasSuffix(tc.name, "empty") {
+			if !tc.mk().HandleKey(tuikittest.Key(tcell.KeyDown, tcell.ModNone)) {
+				t.Errorf("%s: Down from the start not claimed", tc.name)
+			}
+		}
+	}
+}
+
+// A drag acts only through the zone its press began in (ARCHITECTURE.md § One
+// owner per press inside a widget): from a scrollbar it scrolls and never
+// selects, from a press that already acted (a header, a tree row, a list
+// item, a toolbar button) it does nothing at all, wherever it wanders. BG2: a
+// cell drag reaching a separator resized the column, one reaching the header
+// re-sorted.
+func TestContractDragActsOnlyThroughItsOwnZone(t *testing.T) {
+	type state = string
+	type control struct {
+		name  string
+		mk    func() core.MouseHandler
+		press [2]int
+		// sel reads what the drag must not change; for a press that acted, scroll
+		// is included.
+		sel func(core.MouseHandler) state
+	}
+	listSel := func(c core.MouseHandler) state { l := c.(*ListBox); return fmt.Sprint(l.sel) }
+	listAll := func(c core.MouseHandler) state { l := c.(*ListBox); return fmt.Sprint(l.sel, l.scroll) }
+	treeSel := func(c core.MouseHandler) state { tv := c.(*TreeView); return fmt.Sprint(tv.sel) }
+	treeAll := func(c core.MouseHandler) state {
+		tv := c.(*TreeView)
+		return fmt.Sprint(tv.sel, tv.scroll, tv.scrollX)
+	}
+	gridSel := func(c core.MouseHandler) state {
+		g := c.(*DataGrid)
+		r0, c0, r1, c1 := g.SelectionBounds()
+		return fmt.Sprint(g.selRow, g.selCol, r0, c0, r1, c1, g.marking)
+	}
+	gridAll := func(c core.MouseHandler) state {
+		g := c.(*DataGrid)
+		return fmt.Sprint(gridSel(c), g.scrollRow, g.scrollCol, g.colWidths)
+	}
+	edSel := func(c core.MouseHandler) state {
+		e := c.(*editor.Editor)
+		r, col := e.CursorPos()
+		return fmt.Sprint(r, col, e.HasSelection(), e.SelectedText())
+	}
+	var clicks int
+	toolbar := func() core.MouseHandler {
+		tb := NewToolbar()
+		tb.SetButtons([]ToolbarButton{{Icon: "Run", Action: func() { clicks++ }}, {Icon: "Stop", Action: func() { clicks++ }}})
+		tb.SetBounds(0, 0, 40)
+		return tb
+	}
+	controls := []control{
+		{"ListBox item", func() core.MouseHandler { return contractListBox() }, [2]int{3, 3}, listAll},
+		{"ListBox bar", func() core.MouseHandler { return contractListBox() }, [2]int{39, 5}, listSel},
+		{"TreeView row", func() core.MouseHandler { return contractTreeView() }, [2]int{3, 3}, treeAll},
+		{"TreeView bar", func() core.MouseHandler { return contractTreeView() }, [2]int{39, 5}, treeSel},
+		{"TreeView hbar", func() core.MouseHandler { return contractTreeView() }, [2]int{10, 9}, treeSel},
+		{"DataGrid header", func() core.MouseHandler { return contractDataGrid() }, [2]int{12, 0}, gridAll},
+		{"DataGrid bar", func() core.MouseHandler { return contractDataGrid() }, [2]int{39, 5}, gridSel},
+		{"DataGrid hbar", func() core.MouseHandler { return contractDataGrid() }, [2]int{20, 9}, gridSel},
+		{"DataGrid separator", func() core.MouseHandler { return contractDataGrid() }, [2]int{0, 1}, gridSel},
+		{"Editor bar", func() core.MouseHandler { return contractEditor(false) }, [2]int{39, 5}, edSel},
+		{"Editor hbar", func() core.MouseHandler { return contractEditor(false) }, [2]int{20, 9}, edSel},
+		{"Editor wrapped bar", func() core.MouseHandler { return contractEditor(true) }, [2]int{39, 5}, edSel},
+		// The buttons are right-aligned, and the rect is theirs alone: 30 is Run.
+		{"Toolbar button", toolbar, [2]int{30, 0}, func(core.MouseHandler) state { return fmt.Sprint(clicks) }},
+	}
+	for _, tc := range controls {
+		c := tc.mk()
+		c.HandleMouse(tuikittest.Press(tc.press[0], tc.press[1]))
+		want := tc.sel(c)
+		// Every cell of the rect, then past each edge.
+		path := [][2]int{{-5, 5}, {60, 5}, {20, -3}, {20, 20}}
+		for y := range 10 {
+			for x := range 40 {
+				path = append(path, [2]int{x, y})
+			}
+		}
+		for _, p := range path {
+			c.HandleMouse(tuikittest.Mouse(p[0], p[1], tcell.Button1))
+			if got := tc.sel(c); got != want {
+				t.Errorf("%s: drag from %v reached %v and changed %q to %q", tc.name, tc.press, p, want, got)
+				break
+			}
+		}
+		c.HandleMouse(tuikittest.Release(5, 5))
+	}
+}
+
+// SetBounds with the same rect changes nothing; a new rect never moves the
+// selection or cursor and leaves the scroll inside the content (IN3). Each
+// control starts scrolled to its far end, where a taller or wider rect has the
+// most room to leave blank rows above the content: BG5 for TreeView, and a
+// wrapped Editor's scrollRow, counting visual rows, pointed past the end once
+// a wider rect made them fewer.
+func TestContractSetBoundsKeepsSelectionAndScrollInContent(t *testing.T) {
+	type control struct {
+		name string
+		mk   func() interface {
+			SetBounds(x, y, w, h int)
+			Draw(tcell.Screen)
+		}
+		state  func(c any) string // selection or cursor, then scroll
+		inside func(c any) bool   // scroll within the content, drawn or not
+	}
+	editorTop := func(c any) bool {
+		e := c.(*editor.Editor)
+		r := e.Bounds()
+		s := tuikittest.NewScreen(r.W, r.H)
+		e.Draw(s)
+		return strings.TrimSpace(s.Row(0)) != "" // a line number or text, not past the end
+	}
+	editorState := func(c any) string {
+		e := c.(*editor.Editor)
+		row, col := e.CursorPos()
+		sr, sc := e.ScrollPos()
+		return fmt.Sprint(row, col, sr, sc)
+	}
+	toEditorEnd := func(e *editor.Editor) *editor.Editor {
+		e.HandleKey(tuikittest.Key(tcell.KeyEnd, tcell.ModCtrl))
+		return e
+	}
+	controls := []control{
+		{"ListBox", func() interface {
+			SetBounds(x, y, w, h int)
+			Draw(tcell.Screen)
+		} {
+			l := contractListBox()
+			l.HandleKey(tuikittest.Key(tcell.KeyEnd, tcell.ModNone))
+			return l
+		}, func(c any) string { l := c.(*ListBox); return fmt.Sprint(l.sel, l.scroll) },
+			func(c any) bool { l := c.(*ListBox); return l.scroll >= 0 && l.scroll <= max(0, len(l.items)-l.rect.H) }},
+		{"TreeView", func() interface {
+			SetBounds(x, y, w, h int)
+			Draw(tcell.Screen)
+		} {
+			tv := contractTreeView()
+			tv.HandleKey(tuikittest.Key(tcell.KeyEnd, tcell.ModNone))
+			tv.HandleMouse(tuikittest.Mouse(5, 5, tcell.WheelRight, tcell.ModNone))
+			return tv
+		}, func(c any) string { tv := c.(*TreeView); return fmt.Sprint(tv.sel, tv.scroll, tv.scrollX) },
+			func(c any) bool {
+				tv := c.(*TreeView)
+				in := tv.rect.Inner(1)
+				return tv.scroll >= 0 && tv.scroll <= max(0, len(tv.nodes)-in.H) &&
+					tv.scrollX >= 0 && tv.scrollX <= max(0, tv.contentW-in.W)
+			}},
+		{"DataGrid", func() interface {
+			SetBounds(x, y, w, h int)
+			Draw(tcell.Screen)
+		} {
+			g := contractDataGrid()
+			for _, k := range []tcell.Key{tcell.KeyEnd, tcell.KeyRight, tcell.KeyRight} {
+				g.HandleKey(tuikittest.Key(k, tcell.ModNone))
+			}
+			return g
+		}, func(c any) string {
+			g := c.(*DataGrid)
+			return fmt.Sprint(g.selRow, g.selCol, g.scrollRow, g.scrollCol)
+		},
+			func(c any) bool {
+				g := c.(*DataGrid)
+				return g.scrollRow >= 0 && g.scrollRow <= max(0, g.rows.Len()-g.dataRows())
+			}},
+		{"Editor", func() interface {
+			SetBounds(x, y, w, h int)
+			Draw(tcell.Screen)
+		} {
+			return toEditorEnd(contractEditor(false))
+		}, editorState, editorTop},
+		{"Editor wrapped", func() interface {
+			SetBounds(x, y, w, h int)
+			Draw(tcell.Screen)
+		} {
+			return toEditorEnd(contractEditor(true))
+		}, editorState, editorTop},
+	}
+	for _, tc := range controls {
+		c := tc.mk()
+		before := tuikittest.NewScreen(40, 10)
+		c.Draw(before)
+		st := tc.state(c)
+		c.SetBounds(0, 0, 40, 10)
+		after := tuikittest.NewScreen(40, 10)
+		c.Draw(after)
+		if got := tc.state(c); got != st || after.Snapshot() != before.Snapshot() {
+			t.Errorf("%s: SetBounds with the same rect changed state %q -> %q or the drawing", tc.name, st, got)
+		}
+		for _, r := range []core.Rect{{W: 40, H: 60}, {W: 120, H: 10}, {W: 120, H: 60}, {W: 20, H: 5}, {W: 25, H: 10}} {
+			c := tc.mk()
+			sel := strings.Fields(tc.state(c))
+			c.SetBounds(r.X, r.Y, r.W, r.H)
+			got := strings.Fields(tc.state(c))
+			// Selection or cursor is every field but the scroll ones; the
+			// controls above put them first: one for ListBox and TreeView,
+			// two for DataGrid and Editor.
+			n := 2
+			if tc.name == "ListBox" || tc.name == "TreeView" {
+				n = 1
+			}
+			if strings.Join(got[:n], " ") != strings.Join(sel[:n], " ") {
+				t.Errorf("%s: SetBounds(%+v) moved the selection %v -> %v", tc.name, r, sel[:n], got[:n])
+			}
+			if !tc.inside(c) {
+				t.Errorf("%s: SetBounds(%+v) left the scroll outside the content (%v)", tc.name, r, got)
+			}
+		}
+	}
+}
+
+// One wheel tick scrolls every control by the same step (IN4): core.WheelRows
+// down, core.WheelCells sideways where the control scrolls by the cell. Form
+// stepped three rows and the others one.
+func TestContractWheelStep(t *testing.T) {
+	l := contractListBox()
+	tv := contractTreeView()
+	g := contractDataGrid()
+	e := contractEditor(false)
+	for _, c := range []core.MouseHandler{l, tv, g, e} {
+		c.HandleMouse(tuikittest.Mouse(5, 5, tcell.WheelDown, tcell.ModNone))
+	}
+	er, _ := e.ScrollPos()
+	for name, got := range map[string]int{"ListBox": l.scroll, "TreeView": tv.scroll, "DataGrid": g.scrollRow, "Editor": er} {
+		if got != core.WheelRows {
+			t.Errorf("%s: WheelDown scrolled %d rows, want %d", name, got, core.WheelRows)
+		}
+	}
+	tv.HandleMouse(tuikittest.Mouse(5, 5, tcell.WheelRight, tcell.ModNone))
+	e.HandleMouse(tuikittest.Mouse(5, 5, tcell.WheelRight, tcell.ModNone))
+	_, ec := e.ScrollPos()
+	if tv.scrollX != core.WheelCells || ec != core.WheelCells {
+		t.Errorf("WheelRight: TreeView %d, Editor %d cells, want %d", tv.scrollX, ec, core.WheelCells)
+	}
+}

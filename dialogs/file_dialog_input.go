@@ -201,12 +201,12 @@ func (d *FileDialog) HandleMouse(ev *tcell.EventMouse) bool {
 			return true
 		}
 	case tcell.WheelUp:
-		if lr := d.listRect(); lr.Contains(mx, my) && d.scroll > 0 {
-			d.scroll--
+		if lr := d.listRect(); lr.Contains(mx, my) {
+			d.scroll = max(0, d.scroll-core.WheelRows)
 		}
 	case tcell.WheelDown:
-		if lr := d.listRect(); lr.Contains(mx, my) && d.scroll < len(d.entries)-lr.H {
-			d.scroll++
+		if lr := d.listRect(); lr.Contains(mx, my) {
+			d.scroll = max(d.scroll, min(len(d.entries)-lr.H, d.scroll+core.WheelRows))
 		}
 	}
 	return true

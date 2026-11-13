@@ -281,3 +281,18 @@ func TestListBoxTextStopsShortOfTheScrollbar(t *testing.T) {
 		t.Error("a wide glyph was drawn under the scrollbar column")
 	}
 }
+
+// TestListBoxCancelMouseDragDropsTheLatches pins core.DragCanceller on
+// ListBox: a list dismissed mid-drag never sees the release, and with its
+// press latch still set the first press after reopening was a resend.
+func TestListBoxCancelMouseDragDropsTheLatches(t *testing.T) {
+	l := NewListBox()
+	l.SetBounds(0, 0, 10, 5)
+	l.SetItems([]string{"a", "b", "c"})
+	l.HandleMouse(tcell.NewEventMouse(1, 0, tcell.Button1, tcell.ModNone))
+	l.CancelMouseDrag()
+	l.HandleMouse(tcell.NewEventMouse(1, 2, tcell.Button1, tcell.ModNone))
+	if l.Selected() != 2 {
+		t.Fatalf("Selected() = %d after a press on row 2, want 2 — the cancelled press still latched", l.Selected())
+	}
+}

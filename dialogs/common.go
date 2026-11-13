@@ -4,12 +4,32 @@ import (
 	"github.com/radix29/tuikit/core"
 )
 
-// Strings is the button text this package's dialogs draw. A host may
-// replace any of it (to translate it, say) on the UI goroutine before the first
-// Draw. Every dialog answers by the button's position, never its text. A
-// ConfirmDialog or TypedConfirmDialog reads it when shown.
+// Strings is the text this package's dialogs draw on their own: buttons,
+// default titles, column headers, field labels and status messages. A host may
+// replace any of it (to translate it, say) on the UI goroutine before the
+// first Draw. Every dialog answers by the button's position, never its text. A
+// ConfirmDialog or TypedConfirmDialog reads its buttons when shown; each
+// dialog reads its default title, and FileDialog its field labels, when
+// created; the rest is read when drawn or set.
 var Strings = struct {
 	OK, Cancel, Yes, No, Close, Confirm, Script, Open, Save string
+
+	// Default titles, until the host's Show call or SetTitle names one.
+	AlertTitle, ConfirmTitle, PromptTitle, WorkingTitle string
+	PropertiesTitle, OpenFileTitle                      string
+
+	EnterValue    string // PromptDialog, on OK with an empty value
+	TextMismatch  string // TypedConfirmDialog, on Confirm with the wrong text
+	TypeToConfirm string // TypedConfirmDialog's prompt; %s is the required text
+
+	Elapsed, Cancelling string // ProgressDialog's ElapsedText and CancellingText defaults
+
+	// FileDialog: field labels, column headers, a folder's size cell, and the
+	// busy line while a folder lists (%s is the folder).
+	PathLabel, FileLabel     string
+	NameCol, SizeCol, ModCol string
+	DirSize, Listing         string
+	PropertyCol, ValueCol    string // PropertiesDialog's column headers
 }{
 	OK:      "OK",
 	Cancel:  "Cancel",
@@ -20,6 +40,30 @@ var Strings = struct {
 	Script:  "Script",
 	Open:    "Open",
 	Save:    "Save",
+
+	AlertTitle:      "Alert",
+	ConfirmTitle:    "Confirm",
+	PromptTitle:     "Prompt",
+	WorkingTitle:    "Working",
+	PropertiesTitle: "Properties",
+	OpenFileTitle:   "Open File",
+
+	EnterValue:    "Enter a value.",
+	TextMismatch:  "Text doesn't match — action not confirmed.",
+	TypeToConfirm: "Type \"%s\" to confirm:",
+
+	Elapsed:    "Elapsed",
+	Cancelling: "Cancelling — waiting for the operation to stop",
+
+	PathLabel:   "Path:",
+	FileLabel:   "File:",
+	NameCol:     "Name",
+	SizeCol:     "Size",
+	ModCol:      "Modified",
+	DirSize:     "DIR",
+	Listing:     "Listing %s ...",
+	PropertyCol: "Property",
+	ValueCol:    "Value",
 }
 
 // messageBoxOverhead is how much narrower a message's wrapped content is than

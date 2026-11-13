@@ -235,3 +235,21 @@ func TestToolbarSetButtonsBeforeSetBoundsDrawsNothing(t *testing.T) {
 		t.Fatalf("toolbar width = %d before any SetBounds, want 0", tb.rect.W)
 	}
 }
+
+// TestToolbarSetBoundsUnchangedSkipsTheLayout pins OP6: hosts call SetBounds
+// every frame, and the layout allocates four slices. The same arguments do
+// nothing; SetButtons at the same bounds still lays the new list out.
+func TestToolbarSetBoundsUnchangedSkipsTheLayout(t *testing.T) {
+	tb := newTestToolbar(nil)
+	if allocs := testing.AllocsPerRun(100, func() { tb.SetBounds(0, 0, 8) }); allocs != 0 {
+		t.Fatalf("SetBounds with unchanged bounds allocated %.0f times, want 0", allocs)
+	}
+	tb.SetButtons([]ToolbarButton{{Icon: "A"}, {Icon: "B"}})
+	if len(tb.widths) != 2 || tb.widths[0] != 3 || tb.widths[1] != 3 {
+		t.Fatalf("after SetButtons at the same bounds, widths = %v, want [3 3]", tb.widths)
+	}
+	tb.SetBounds(0, 0, 3) // room for one: B (rightmost of equal ranks) stays
+	if tb.widths[0] != 0 || tb.widths[1] != 3 {
+		t.Fatalf("after a narrower SetBounds, widths = %v, want [0 3]", tb.widths)
+	}
+}

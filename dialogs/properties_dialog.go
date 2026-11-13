@@ -51,7 +51,7 @@ type PropertiesDialog struct {
 // NewPropertiesDialog creates a PropertiesDialog.
 func NewPropertiesDialog(s tcell.Screen) *PropertiesDialog {
 	d := new(PropertiesDialog{keyW: propsKeyW})
-	d.InitModal(s, "Properties", propsDefaultW, propsDefaultH)
+	d.InitModal(s, Strings.PropertiesTitle, propsDefaultW, propsDefaultH)
 	return d
 }
 
@@ -120,9 +120,9 @@ func (d *PropertiesDialog) Draw(s tcell.Screen) {
 	// Header
 	hdrStyle := theme.StyleGridHeader()
 	core.FillRect(s, core.Rect{X: inner.X, Y: inner.Y + 1, W: inner.W, H: 1}, ' ', hdrStyle)
-	core.DrawTextClipped(s, inner.X+1, inner.Y+1, keyW, hdrStyle, "Property")
+	core.DrawTextClipped(s, inner.X+1, inner.Y+1, keyW, hdrStyle, Strings.PropertyCol)
 	core.PutRune(s, inner.X+keyW+2, inner.Y+1, '|', hdrStyle)
-	core.DrawTextClipped(s, inner.X+keyW+4, inner.Y+1, inner.W-keyW-4, hdrStyle, "Value")
+	core.DrawTextClipped(s, inner.X+keyW+4, inner.Y+1, inner.W-keyW-4, hdrStyle, Strings.ValueCol)
 
 	keyStyle := theme.StyleDialogAccent().Bold(true)
 	valStyle := theme.StyleDialog()
@@ -205,13 +205,9 @@ func (d *PropertiesDialog) HandleMouse(ev *tcell.EventMouse) bool {
 	}
 	switch ev.Buttons() {
 	case tcell.WheelUp:
-		if d.scroll > 0 {
-			d.scroll--
-		}
+		d.scroll = max(0, d.scroll-core.WheelRows)
 	case tcell.WheelDown:
-		if d.scroll+dataH < len(d.rows) {
-			d.scroll++
-		}
+		d.scroll = max(d.scroll, min(len(d.rows)-dataH, d.scroll+core.WheelRows))
 	}
 	return true
 }

@@ -198,11 +198,13 @@ func TestEditorToggleLineComments(t *testing.T) {
 	e.selAnchorRow, e.selAnchorCol = 0, 0
 	e.cursorRow, e.cursorCol = 1, 8
 
+	e.SetLineComment("--")
 	e.ToggleLineComments()
 	if got := e.Text(); got != "-- SELECT 1\n-- SELECT 2" {
 		t.Fatalf("comment = %q", got)
 	}
 
+	e.SetLineComment("--")
 	e.ToggleLineComments()
 	if got := e.Text(); got != "SELECT 1\nSELECT 2" {
 		t.Fatalf("uncomment = %q", got)
@@ -214,6 +216,7 @@ func TestEditorToggleLineComments(t *testing.T) {
 	e.selecting, e.selBlock = true, false
 	e.selAnchorRow, e.selAnchorCol = 0, 0
 	e.cursorRow, e.cursorCol = 1, 8
+	e.SetLineComment("--")
 	e.ToggleLineComments()
 	if got := e.Text(); got != "-- -- SELECT 1\n-- SELECT 2" {
 		t.Fatalf("mixed-state comment = %q", got)
@@ -377,6 +380,7 @@ func TestEditorCommentToggleShortcut(t *testing.T) {
 	// The real legacy path: Ctrl+/ emits the 0x1F byte, which tcell v3
 	// decodes as KeyRune '_' with ModCtrl (Ctrl+_), not KeyUS.
 	e := newTestEditor("SELECT 1")
+	e.SetLineComment("--")
 	e.HandleKey(tuikittest.Rune('_', tcell.ModCtrl))
 	if got := e.Text(); got != "-- SELECT 1" {
 		t.Fatalf("Ctrl+/ (legacy 0x1F -> Ctrl+_) = %q", got)
@@ -384,6 +388,7 @@ func TestEditorCommentToggleShortcut(t *testing.T) {
 
 	// Modern keyboard protocol reports Ctrl+/ as rune '/' with ModCtrl.
 	e2 := newTestEditor("SELECT 1")
+	e2.SetLineComment("--")
 	e2.HandleKey(tuikittest.Rune('/', tcell.ModCtrl))
 	if got := e2.Text(); got != "-- SELECT 1" {
 		t.Fatalf("Ctrl+/ (advanced protocol) = %q", got)
@@ -391,6 +396,7 @@ func TestEditorCommentToggleShortcut(t *testing.T) {
 
 	// Defensive fallback: a terminal that ever surfaced KeyUS directly.
 	e3 := newTestEditor("SELECT 1")
+	e3.SetLineComment("--")
 	e3.HandleKey(tuikittest.Key(tcell.KeyUS, tcell.ModNone))
 	if got := e3.Text(); got != "-- SELECT 1" {
 		t.Fatalf("Ctrl+/ (KeyUS fallback) = %q", got)
@@ -688,7 +694,7 @@ func TestEditorUndoRestoresEveryEditPath(t *testing.T) {
 		{"delete lines", func(e *Editor) { selectRows(e, 1, 2); e.DeleteLines() }},
 		{"move lines up", func(e *Editor) { e.cursorRow = 3; e.MoveLinesUp() }},
 		{"move lines down", func(e *Editor) { e.cursorRow = 1; e.MoveLinesDown() }},
-		{"toggle comments", func(e *Editor) { selectRows(e, 0, 4); e.ToggleLineComments() }},
+		{"toggle comments", func(e *Editor) { selectRows(e, 0, 4); e.SetLineComment("--"); e.ToggleLineComments() }},
 		{"uppercase selection", func(e *Editor) { selectRows(e, 1, 3); e.UppercaseSelection() }},
 		{"lowercase a block selection", func(e *Editor) {
 			e.selecting, e.selBlock = true, true
@@ -807,6 +813,7 @@ func TestEditorLineActionsKeepUndoHistoryOnALargeScript(t *testing.T) {
 	for range 10 {
 		e.IndentLines()
 		e.DedentLines()
+		e.SetLineComment("--")
 		e.ToggleLineComments()
 		e.DuplicateLines()
 		e.MoveLinesDown()
@@ -1049,8 +1056,8 @@ func TestEditorHorizontalWheelScroll(t *testing.T) {
 	e.SetBounds(0, 0, 10, 5)
 
 	e.HandleMouse(tcell.NewEventMouse(6, 2, tcell.WheelRight, tcell.ModNone))
-	if e.scrollCol != horizontalWheelChars {
-		t.Fatalf("scrollCol after WheelRight = %d, want %d", e.scrollCol, horizontalWheelChars)
+	if e.scrollCol != core.WheelCells {
+		t.Fatalf("scrollCol after WheelRight = %d, want %d", e.scrollCol, core.WheelCells)
 	}
 	// Enough further ticks to overshoot the line's end regardless of step size.
 	for range len(e.doc.Line(0)) {
@@ -1061,14 +1068,14 @@ func TestEditorHorizontalWheelScroll(t *testing.T) {
 		t.Fatalf("scrollCol after repeated WheelRight = %d, want %d (clamped to the last character)", e.scrollCol, want)
 	}
 	e.HandleMouse(tcell.NewEventMouse(6, 2, tcell.WheelLeft, tcell.ModNone))
-	if e.scrollCol != want-horizontalWheelChars {
-		t.Fatalf("scrollCol after WheelLeft = %d, want %d", e.scrollCol, want-horizontalWheelChars)
+	if e.scrollCol != want-core.WheelCells {
+		t.Fatalf("scrollCol after WheelLeft = %d, want %d", e.scrollCol, want-core.WheelCells)
 	}
 
 	e.scrollCol = 0
 	e.HandleMouse(tcell.NewEventMouse(6, 2, tcell.WheelDown, tcell.ModShift))
-	if e.scrollCol != horizontalWheelChars {
-		t.Fatalf("scrollCol after Shift+WheelDown = %d, want %d", e.scrollCol, horizontalWheelChars)
+	if e.scrollCol != core.WheelCells {
+		t.Fatalf("scrollCol after Shift+WheelDown = %d, want %d", e.scrollCol, core.WheelCells)
 	}
 	e.HandleMouse(tcell.NewEventMouse(6, 2, tcell.WheelUp, tcell.ModShift))
 	if e.scrollCol != 0 {
@@ -1497,5 +1504,58 @@ func TestEditorInsertsAComposedKeyWhole(t *testing.T) {
 	e.HandleKey(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone))
 	if got, want := e.Text(), "a"+family+"xb"; got != want {
 		t.Errorf("Text() = %q, want %q", got, want)
+	}
+}
+
+// TestEditorLineCommentPrefix pins that the comment prefix is the host's:
+// none set makes Ctrl+/ a no-op the editor does not claim, and any other
+// prefix is inserted and stripped the way "--" is.
+func TestEditorLineCommentPrefix(t *testing.T) {
+	e := newTestEditor("SELECT 1")
+	e.ToggleLineComments()
+	if got := e.Text(); got != "SELECT 1" {
+		t.Fatalf("no prefix: ToggleLineComments changed the text to %q", got)
+	}
+	if e.HandleKey(tuikittest.Rune('/', tcell.ModCtrl)) {
+		t.Fatal("no prefix: Ctrl+/ was claimed though it did nothing")
+	}
+
+	for _, prefix := range []string{"//", "#", "REM"} {
+		e := newTestEditor("  x\n\n  y")
+		e.SetLineComment(prefix)
+		e.SelectAll()
+		if !e.HandleKey(tuikittest.Rune('/', tcell.ModCtrl)) {
+			t.Fatalf("%q: Ctrl+/ was not claimed", prefix)
+		}
+		want := "  " + prefix + " x\n" + prefix + " \n  " + prefix + " y"
+		if got := e.Text(); got != want {
+			t.Fatalf("%q: comment = %q, want %q", prefix, got, want)
+		}
+		e.SelectAll()
+		e.ToggleLineComments()
+		if got := e.Text(); got != "  x\n\n  y" {
+			t.Fatalf("%q: uncomment = %q", prefix, got)
+		}
+	}
+}
+
+// TestTextAndSelectedTextRoundTripNonASCII pins Text and SelectedText's
+// rune-by-rune builders (sized by rune count, exact only for ASCII) on text
+// whose bytes outnumber its runes: an accent, a CJK glyph, an emoji, and an
+// empty line between.
+func TestTextAndSelectedTextRoundTripNonASCII(t *testing.T) {
+	const text = "SELECT 'café'\n\n-- 漢字 🙂\nGO"
+	e := NewEditor(nil)
+	e.SetText(text)
+	if got := e.Text(); got != text {
+		t.Fatalf("Text() = %q, want %q", got, text)
+	}
+	e.SelectRange(0, 8, 2, 5)
+	if got, want := e.SelectedText(), "café'\n\n-- 漢字"; got != want {
+		t.Errorf("SelectedText() = %q, want %q", got, want)
+	}
+	e.SelectRange(2, 3, 2, 5)
+	if got, want := e.SelectedText(), "漢字"; got != want {
+		t.Errorf("one-line SelectedText() = %q, want %q", got, want)
 	}
 }

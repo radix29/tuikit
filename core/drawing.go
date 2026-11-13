@@ -235,6 +235,18 @@ func DimArea(s tcell.Screen, r Rect, overlay tcell.Color, num, den int) {
 	}
 }
 
+// popupDimNum/popupDimDen are the strength DimBehindPopup fades at: clearly
+// inactive but still legible.
+const popupDimNum, popupDimDen = 3, 5
+
+// DimBehindPopup fades the whole screen toward overlay (the theme's
+// DialogOverlay) before a modal popup draws over it — the one dim every modal
+// (dialogs.ModalDialog, controls.ValueViewer) shares, so they look alike.
+func DimBehindPopup(s tcell.Screen, overlay tcell.Color) {
+	sw, sh := s.Size()
+	DimArea(s, Rect{X: 0, Y: 0, W: sw, H: sh}, overlay, popupDimNum, popupDimDen)
+}
+
 // dimStyle blends a style's foreground and background toward overlay.
 func dimStyle(st tcell.Style, overlay tcell.Color, num, den int) tcell.Style {
 	if fg := st.GetForeground(); fg.Valid() {

@@ -34,11 +34,19 @@ type TreeNode struct {
 // then "icon " and the label.
 func (n *TreeNode) onText(vcol int) bool {
 	start := n.Depth*2 + 4
+	return vcol >= start && vcol < start+n.textWidth()
+}
+
+// textWidth is the display width of n's "icon " and label, measured once here
+// for both hit-testing (onText) and the content width (lineWidth): the two used
+// to disagree on a zero-width icon. As drawn, such an icon joins the cell before
+// it, so it adds no column of its own.
+func (n *TreeNode) textWidth() int {
 	w := core.DisplayWidth(n.Label)
 	if n.Icon != 0 {
 		w += core.RuneWidth(n.Icon) + 1
 	}
-	return vcol >= start && vcol < start+w
+	return w
 }
 
 // TreeView is a collapsible/expandable tree control. The application populates
@@ -259,12 +267,7 @@ func (tv *TreeView) indexOf(id TreeNodeID) int {
 // depth level) + the 4-column expander field + the icon and its separating
 // space, if any + the label.
 func (tv *TreeView) lineWidth(n TreeNode) int {
-	w := n.Depth*2 + 4
-	if n.Icon != 0 {
-		w += max(1, core.RuneWidth(n.Icon)) + 1
-	}
-	w += core.DisplayWidth(n.Label)
-	return w
+	return n.Depth*2 + 4 + n.textWidth()
 }
 
 // SelectID selects the node with the given ID, if present, and fires OnSelect,
@@ -358,7 +361,10 @@ func (tv *TreeView) Draw(s tcell.Screen) {
 	}
 }
 
-// HandleKey handles keyboard events.
+// HandleKey handles keyboard events. It reports true only when the key moved
+// the selection or scroll, expanded or collapsed a node, or fired a callback:
+// Up on the first node, Left on a collapsed one or any key on an empty tree
+// answer false, so the host can use the key itself.
 func (tv *TreeView) HandleKey(ev *tcell.EventKey) bool {
 	inner := tv.rect.Inner(1)
 	switch ev.Key() {
@@ -366,85 +372,68 @@ func (tv *TreeView) HandleKey(ev *tcell.EventKey) bool {
 		// An empty tree has no row to move to: PgDn's min(len-1, …) is -1, and Draw
 		// then indexes nodes[-1].
 		if len(tv.nodes) == 0 {
-			return true
+			return false
 		}
 	}
 	switch ev.Key() {
 	case tcell.KeyUp:
-		if tv.sel > 0 {
-			tv.sel--
-			tv.ensureVisible(inner.H)
-			tv.fireSelect()
-		}
-		return true
+		return tv.moveTo(tv.sel-1, inner.H)
 	case tcell.KeyDown:
-		if tv.sel < len(tv.nodes)-1 {
-			tv.sel++
-			tv.ensureVisible(inner.H)
-			tv.fireSelect()
-		}
-		return true
+		return tv.moveTo(tv.sel+1, inner.H)
 	case tcell.KeyPgUp:
-		tv.sel = max(0, tv.sel-inner.H)
-		tv.ensureVisible(inner.H)
-		tv.fireSelect()
-		return true
+		return tv.moveTo(tv.sel-inner.H, inner.H)
 	case tcell.KeyPgDn:
-		tv.sel = min(len(tv.nodes)-1, tv.sel+inner.H)
-		tv.ensureVisible(inner.H)
-		tv.fireSelect()
-		return true
+		return tv.moveTo(tv.sel+inner.H, inner.H)
 	case tcell.KeyHome:
-		tv.sel = 0
-		tv.ensureVisible(inner.H)
-		tv.fireSelect()
-		return true
+		return tv.moveTo(0, inner.H)
 	case tcell.KeyEnd:
-		if len(tv.nodes) > 0 {
-			tv.sel = len(tv.nodes) - 1
-		}
-		tv.ensureVisible(inner.H)
-		tv.fireSelect()
-		return true
+		return tv.moveTo(len(tv.nodes)-1, inner.H)
 	case tcell.KeyEnter:
 		// Enter is "do the default thing with this node"; Right only ever expands, so
 		// the activation hook hangs off Enter alone.
-		if !tv.activateSelected() {
-			tv.toggleExpand()
-		}
-		return true
+		return tv.activateSelected() || tv.toggleExpand()
 	case tcell.KeyRight:
-		tv.expandSelected()
-		return true
+		return tv.expandSelected()
 	case tcell.KeyLeft, tcell.KeyBackspace, tcell.KeyBackspace2:
-		tv.collapseSelected()
-		return true
+		return tv.collapseSelected()
 	case tcell.KeyF10:
 		// Shift+F10 is the cross-platform "open context menu" convention and the
 		// binding most macOS terminal apps use (no dedicated context-menu key).
 		if ev.Modifiers()&tcell.ModShift != 0 {
-			tv.openContextMenuAtSelection()
-			return true
+			return tv.openContextMenuAtSelection()
 		}
 	case tcell.KeyMenu:
 		// The dedicated Menu/Application key on most Windows and Linux keyboards.
-		tv.openContextMenuAtSelection()
-		return true
+		return tv.openContextMenuAtSelection()
 	}
 	if ev.Modifiers()&tcell.ModCtrl != 0 && core.EvRune(ev) == ' ' {
 		// Ctrl+Space: an always-available third way, beside Shift+F10 and Menu.
-		tv.openContextMenuAtSelection()
-		return true
+		return tv.openContextMenuAtSelection()
 	}
 	switch core.EvRune(ev) {
 	case '+':
-		tv.expandSelected()
-		return true
+		return tv.expandSelected()
 	case '-':
-		tv.collapseSelected()
-		return true
+		return tv.collapseSelected()
 	}
 	return false
+}
+
+// moveTo selects node i, clamped to the tree, scrolls it into an h-row view and
+// fires OnSelect, and reports whether the selection or the scroll changed.
+// OnSelect fires only on a real move: Home on the first node reports nothing to
+// a host that reloads a pane per selection.
+func (tv *TreeView) moveTo(i, h int) bool {
+	if len(tv.nodes) == 0 {
+		return false
+	}
+	sel, scroll := tv.sel, tv.scroll
+	tv.sel = core.Clamp(i, 0, len(tv.nodes)-1)
+	tv.ensureVisible(h)
+	if tv.sel != sel {
+		tv.fireSelect()
+	}
+	return tv.sel != sel || tv.scroll != scroll
 }
 
 // treeZone is the part of the tree a Button1 press began in, which owns every
@@ -519,15 +508,15 @@ func (tv *TreeView) HandleMouse(ev *tcell.EventMouse) bool {
 		// honour both (as DataGrid, Editor and PlanView do).
 		if ev.Modifiers()&tcell.ModShift != 0 {
 			tv.scrollLeft()
-		} else if tv.scroll > 0 {
-			tv.scroll--
+		} else {
+			tv.scroll = max(0, tv.scroll-core.WheelRows)
 		}
 		return true
 	case tcell.WheelDown:
 		if ev.Modifiers()&tcell.ModShift != 0 {
 			tv.scrollRight()
-		} else if tv.scroll < len(tv.nodes)-inner.H {
-			tv.scroll++
+		} else {
+			tv.scroll = max(tv.scroll, min(len(tv.nodes)-inner.H, tv.scroll+core.WheelRows))
 		}
 		return true
 	case tcell.WheelLeft:
@@ -669,12 +658,12 @@ func (tv *TreeView) NodeIDAt(mx, my int) (int, bool) {
 // scrollLeft/scrollRight nudge the horizontal scroll offset by 4 columns,
 // clamped to [0, contentW-inner.W] so the thumb never runs past either end.
 func (tv *TreeView) scrollLeft() {
-	tv.scrollX = max(0, tv.scrollX-4)
+	tv.scrollX = max(0, tv.scrollX-core.WheelCells)
 }
 
 func (tv *TreeView) scrollRight() {
 	maxScroll := max(0, tv.contentW-tv.rect.Inner(1).W)
-	tv.scrollX = min(maxScroll, tv.scrollX+4)
+	tv.scrollX = min(maxScroll, tv.scrollX+core.WheelCells)
 }
 
 // activateSelected runs the selected node's default action, reporting whether
@@ -693,10 +682,10 @@ func (tv *TreeView) activateSelected() bool {
 // caller can redisplay cached children; whether to fetch is the caller's
 // decision. TreeNode.Loaded is caller-supplied display metadata, not tracked or
 // gated on here.
-func (tv *TreeView) toggleExpand() {
+func (tv *TreeView) toggleExpand() bool {
 	n := tv.SelectedNode()
 	if n == nil || !n.HasKids {
-		return
+		return false
 	}
 	n.Expanded = !n.Expanded
 	if n.Expanded {
@@ -706,28 +695,29 @@ func (tv *TreeView) toggleExpand() {
 	} else if tv.OnCollapse != nil {
 		tv.OnCollapse(n.ID)
 	}
+	return true
 }
 
 // expandSelected expands the selected node if it has children and is collapsed,
 // firing OnExpand. Right and + only ever expand (toggling would collapse an
 // expanded node, against F1 help and the Enter case).
-func (tv *TreeView) expandSelected() {
-	if n := tv.SelectedNode(); n != nil && !n.Expanded {
-		tv.toggleExpand()
-	}
+func (tv *TreeView) expandSelected() bool {
+	n := tv.SelectedNode()
+	return n != nil && !n.Expanded && tv.toggleExpand()
 }
 
 // collapseSelected collapses the selected node if it is expanded, firing
 // OnCollapse. No-op if nothing is selected or it is already collapsed.
-func (tv *TreeView) collapseSelected() {
+func (tv *TreeView) collapseSelected() bool {
 	n := tv.SelectedNode()
 	if n == nil || !n.Expanded {
-		return
+		return false
 	}
 	n.Expanded = false
 	if tv.OnCollapse != nil {
 		tv.OnCollapse(n.ID)
 	}
+	return true
 }
 
 // ensureVisible scrolls the selection into an h-row view. It does nothing for
@@ -755,12 +745,13 @@ func (tv *TreeView) fireSelect() {
 
 // openContextMenuAtSelection fires OnRightClick for the selected node,
 // positioned at its row — the keyboard equivalent of a right-click.
-func (tv *TreeView) openContextMenuAtSelection() {
+func (tv *TreeView) openContextMenuAtSelection() bool {
 	x, y, ok := tv.SelectionAnchor()
 	if !ok || tv.OnRightClick == nil {
-		return
+		return false
 	}
 	tv.OnRightClick(tv.SelectedNode().ID, x, y)
+	return true
 }
 
 // SelectionAnchor returns the screen position a menu about the selected node

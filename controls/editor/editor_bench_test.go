@@ -230,3 +230,28 @@ func BenchmarkEditorPasteManyLines(b *testing.B) {
 		e.Paste(text)
 	}
 }
+
+// BenchmarkEditorText20k is the measurement behind Text (and SelectedText)
+// writing runes straight into one pre-sized builder. A string per line first
+// cost 20,031 allocations and 7.9 MB per call on this script; now one, 1.2 MB,
+// in about half the time.
+func BenchmarkEditorText20k(b *testing.B) {
+	e := NewEditor(nil)
+	e.SetText(benchScript(20000))
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = e.Text()
+	}
+}
+
+// BenchmarkEditorSelectAllText20k is BenchmarkEditorText20k through
+// SelectedText's multi-line path (Ctrl+A, Ctrl+C).
+func BenchmarkEditorSelectAllText20k(b *testing.B) {
+	e := NewEditor(nil)
+	e.SetText(benchScript(20000))
+	e.SelectAll()
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = e.SelectedText()
+	}
+}

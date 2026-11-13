@@ -1,8 +1,8 @@
 package controls
 
 import (
+	"fmt"
 	"slices"
-	"strconv"
 
 	"github.com/gdamore/tcell/v3"
 	"github.com/radix29/tuikit/core"
@@ -86,6 +86,10 @@ type DataGrid struct {
 	columns   []string
 	rows      RowSource
 	colWidths []int
+	// naturalWidths is each column's measured width before the clamp, overrides
+	// and fill — computeColWidths's sampling, kept so reapplyColWidths can
+	// redo the rest without rescanning rows.
+	naturalWidths []int
 
 	// widthsDirty defers a RefreshColumnWidths request to the next Draw.
 	widthsDirty bool
@@ -325,9 +329,16 @@ func (g *DataGrid) SetData(columns []string, rows [][]string) {
 // SetSource populates the grid from any RowSource, e.g. a paged or streamed
 // result that doesn't hold every row in memory at once.
 func (g *DataGrid) SetSource(columns []string, rows RowSource) {
+	g.resetView(columns, rows, false)
+	g.status = fmt.Sprintf(Strings.Rows, rows.Len())
+}
+
+// resetView installs a new row set and forgets everything the view held about
+// the old one — SetSource's and SetError's shared reset.
+func (g *DataGrid) resetView(columns []string, rows RowSource, errorMode bool) {
 	g.columns = columns
 	g.rows = rows
-	g.errorMode = false
+	g.errorMode = errorMode
 	g.selRow, g.selCol, g.scrollRow, g.scrollCol = 0, 0, 0, 0
 	g.blockSelecting = false
 	// A press on the old set's row 3 and one on the new set's are not a double-click,
@@ -345,7 +356,6 @@ func (g *DataGrid) SetSource(columns []string, rows RowSource) {
 	// over stale text while it still claims every key and mouse event.
 	g.viewer.Close()
 	g.computeColWidths()
-	g.status = strconv.Itoa(rows.Len()) + " rows"
 }
 
 // SetDataPreservingView is SetData for a change that leaves the row set alone (a
@@ -389,7 +399,7 @@ func (g *DataGrid) RefreshColumnWidths() {
 
 // SetError shows an error row.
 //
-// It resets the same view state SetSource does, scrollCol included: the error is
+// It resets the same view state SetSource does (resetView), scrollCol included: the error is
 // one column at index 0, so a grid left scrolled right draws nothing at all
 // (drawRow starts at scrollCol and never reaches column 0). Every caller (the
 // Detail Browser, both Query Store grids, the Log File Viewer) is a wide grid
@@ -399,19 +409,7 @@ func (g *DataGrid) RefreshColumnWidths() {
 // computeColWidths (a resize, a queued RefreshColumnWidths) from clamping the
 // message back to defaultMaxCellWidth.
 func (g *DataGrid) SetError(err error) {
-	g.columns = []string{Strings.Error}
-	g.rows = SliceRowSource{{err.Error()}}
-	g.errorMode = true
-	g.selRow, g.selCol, g.scrollRow, g.scrollCol = 0, 0, 0, 0
-	g.blockSelecting = false
-	g.gesture.Release()
-	g.rowClicks.Reset()
-	g.sortCol, g.sortDesc = -1, false
-	g.ClearMarkedRows()
-	g.colWidthOverride = nil
-	// See SetSource: an open viewer would strand itself over stale text.
-	g.viewer.Close()
-	g.computeColWidths()
+	g.resetView([]string{Strings.Error}, SliceRowSource{{err.Error()}}, true)
 	g.status = Strings.Error
 }
 
@@ -539,7 +537,7 @@ func (g *DataGrid) SetMaxCellWidth(n int) {
 // similarly-important columns it gives the last one outsized width.
 func (g *DataGrid) SetFillLastColumn(v bool) {
 	g.fillLastColumn = v
-	g.computeColWidths()
+	g.reapplyColWidths()
 }
 
 // maxCellWidthOrDefault returns the effective column-width clamp.

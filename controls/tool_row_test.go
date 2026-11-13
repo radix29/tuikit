@@ -41,7 +41,7 @@ func TestToolRowCollapsesTheTailIntoMore(t *testing.T) {
 	if !slices.Equal(tr.Hidden, []int{1, 2, 3}) {
 		t.Fatalf("hidden = %v, want the tail [1 2 3] — never a later, shorter cell squeezed in", tr.Hidden)
 	}
-	if tr.More.Label != ToolRowMoreLabel || tr.More.Rect.X != tr.Cells[0].Rect.Right()+ToolRowGap {
+	if tr.More.Label != Strings.More || tr.More.Rect.X != tr.Cells[0].Rect.Right()+ToolRowGap {
 		t.Errorf("More = %+v, want it right after Refresh", tr.More)
 	}
 	if tr.More.Rect.Right() > r.Right() {

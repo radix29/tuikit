@@ -47,6 +47,10 @@ func (d *ModalDialog) InitModal(s tcell.Screen, title string, w, h int) {
 	d.recentre()
 }
 
+// Screen is the screen InitModal was given (nil for a dialog built without
+// one, as tests do) — what an embedding type sizes itself against.
+func (d *ModalDialog) Screen() tcell.Screen { return d.screen }
+
 // SetSize resizes the dialog and recentres it. A dialog whose content grows with
 // the screen (see propsheet.PropertySheet) calls it from Show or Draw.
 func (d *ModalDialog) SetSize(w, h int) {
@@ -155,10 +159,6 @@ func (d *ModalDialog) ScrollbarDrag(ev *tcell.EventMouse, trackX, trackY, trackH
 	return core.HandleScrollbarDrag(ev, trackX, trackY, trackH, total, &d.sbDragging, scroll)
 }
 
-// dialogDimNum/dialogDimDen fade the underlying UI toward the overlay colour
-// behind an open dialog — clearly inactive but still legible.
-const dialogDimNum, dialogDimDen = 3, 5
-
 // DrawBase fades the underlying UI and draws the dialog box. Embedding types
 // call it first, then render their own content within InnerRect().
 //
@@ -174,8 +174,7 @@ func (d *ModalDialog) DrawBase(s tcell.Screen) {
 	p := theme.Active()
 
 	// Fade the drawn UI in place, not a solid overlay, so it stays visible dimmed.
-	sw, sh := s.Size()
-	core.DimArea(s, core.Rect{X: 0, Y: 0, W: sw, H: sh}, p.DialogOverlay, dialogDimNum, dialogDimDen)
+	core.DimBehindPopup(s, p.DialogOverlay)
 
 	// Dialog background (opaque, over the dimmed UI)
 	core.FillRect(s, d.rect, ' ', theme.StyleDialog())
@@ -264,30 +263,31 @@ func (d *ModalDialog) DrawButtons(s tcell.Screen, labels []string, activeIdx int
 // disabled in the disabled foreground (disabled may be nil or shorter). Drawing
 // it gated does not gate it: the handler must still refuse the button.
 func (d *ModalDialog) DrawButtonsGated(s tcell.Screen, labels []string, activeIdx int, disabled []bool) {
-	y := d.ButtonRowY()
-	// On a clamped rect, content laid out for the full height reaches this row and
-	// the one below; the buttons are right-aligned, so without the clear a content
-	// row's tail shows with a button row in the middle. A dialog with a button row
-	// draws nothing of its own from ButtonRowY down.
-	//
-	// The clear belongs to this entry point alone: a split row draws its
-	// right-aligned group here first, and a second clear from DrawButtonsAtGated
-	// would wipe it.
-	if d.clamped() {
-		core.FillRect(s, core.Rect{X: d.rect.X + 1, Y: y, W: d.rect.W - 2, H: d.rect.Bottom() - 1 - y}, ' ', theme.StyleDialog())
-	}
-	d.DrawButtonsAtGated(s, d.ButtonRowStartX(labels), labels, activeIdx, disabled)
+	d.clearButtonRows(s)
+	d.drawButtonGroup(s, d.ButtonRowStartX(labels), d.ButtonRowY(), labels, activeIdx, disabled)
 }
 
-// DrawButtonsAtGated draws a gated button row starting at column x, for a group
-// placed away from the right-aligned default (e.g. a destructive button at the
-// left). It clears nothing; the caller draws the right-aligned group first.
-func (d *ModalDialog) DrawButtonsAtGated(s tcell.Screen, x int, labels []string, activeIdx int, disabled []bool) {
+// clearButtonRows blanks the button row and the row below it on a clamped rect.
+// Content laid out for the full height reaches them; the buttons are
+// right-aligned, so without the clear a content row's tail shows with a button
+// row in the middle. A dialog with a button row draws nothing of its own from
+// ButtonRowY down — which is also what lets a split row's left group drop to the
+// row below (see SplitButtonLayout).
+func (d *ModalDialog) clearButtonRows(s tcell.Screen) {
+	if !d.clamped() {
+		return
+	}
+	y := d.ButtonRowY()
+	core.FillRect(s, core.Rect{X: d.rect.X + 1, Y: y, W: d.rect.W - 2, H: d.rect.Bottom() - 1 - y}, ' ', theme.StyleDialog())
+}
+
+// drawButtonGroup draws one group of buttons starting at (x, y).
+func (d *ModalDialog) drawButtonGroup(s tcell.Screen, x, y int, labels []string, activeIdx int, disabled []bool) {
 	p := theme.Active()
 	disabledStyle := theme.On(p.ButtonBg, p.TextDisabled)
 	btnStyle := theme.StyleButton()
 	activeStyle := theme.StyleButtonActive()
-	col, y := x, d.ButtonRowY()
+	col := x
 	for i, label := range labels {
 		st := btnStyle
 		if i == activeIdx {
@@ -306,30 +306,98 @@ func (d *ModalDialog) DrawButtonsAtGated(s tcell.Screen, x int, labels []string,
 // Button1 of a gesture can click (see TrackPress): not a resend of a held
 // click, and not a drag that began elsewhere and reached the button row.
 func (d *ModalDialog) ButtonClicked(ev *tcell.EventMouse, labels []string) int {
-	return d.ButtonClickedAt(ev, d.ButtonRowStartX(labels), labels)
+	d.TrackPress(ev)
+	return d.buttonGroupHit(ev, d.ButtonRowStartX(labels), d.ButtonRowY(), labels)
 }
 
-// ButtonClickedAt is ButtonClicked for a row drawn at column x by
-// DrawButtonsAtGated. A call that hits nothing leaves the press fresh, so with
-// two groups call order doesn't matter.
-func (d *ModalDialog) ButtonClickedAt(ev *tcell.EventMouse, x int, labels []string) int {
-	d.TrackPress(ev)
+// buttonGroupHit is the index of the button of the group drawn at (x, y) that
+// ev hits, or -1. Only a fresh press hits, and a hit consumes it: one press
+// clicks one button. A miss leaves the press fresh, so a split row can try its
+// groups in any order. The caller has called TrackPress for ev.
+func (d *ModalDialog) buttonGroupHit(ev *tcell.EventMouse, x, y int, labels []string) int {
 	if !d.fresh {
 		return -1
 	}
 	mx, my := ev.Position()
-	if my != d.ButtonRowY() {
+	if my != y {
 		return -1
 	}
 	col := x
 	for i, label := range labels {
-		text := "[ " + label + " ]"
-		w := core.DisplayWidth(text)
+		w := core.DisplayWidth("[ " + label + " ]")
 		if mx >= col && mx < col+w {
-			d.fresh = false // one press clicks one button
+			d.fresh = false
 			return i
 		}
 		col += w + 2
+	}
+	return -1
+}
+
+// ---------------------------------------------------------------------------
+// Split button row: a left group and a right-aligned group
+// ---------------------------------------------------------------------------
+
+// ButtonLayout places a split button row's two groups (see SplitButtonLayout).
+// Drawing and hit-testing share it, so clicks land where the buttons show.
+type ButtonLayout struct {
+	LeftX, LeftY   int // where the left group starts
+	RightX, RightY int // where the right-aligned group starts; RightY is ButtonRowY
+
+	// GapX, GapW are the free columns on the right group's row left of it: after
+	// the left group when they share the row, from the left margin when it
+	// dropped below. A dialog draws status there (a spinner, "Connecting...").
+	GapX, GapW int
+}
+
+// SplitButtonLayout lays out a button row whose left group (e.g. a destructive
+// button) sits at the left margin and whose right group is right-aligned as
+// DrawButtons places it. When the two groups do not fit side by side — a
+// dialog clamped onto a narrow terminal — the left group moves to the row
+// below, which is blank by the button-row rule; they never overlap. A group
+// wider than the box on its own is cut at the border by DrawBase's clip.
+func (d *ModalDialog) SplitButtonLayout(left, right []string) ButtonLayout {
+	marginX := d.InnerRect().X + 1
+	l := ButtonLayout{
+		LeftX: marginX, LeftY: d.ButtonRowY(),
+		RightX: d.ButtonRowStartX(right), RightY: d.ButtonRowY(),
+	}
+	if len(left) == 0 {
+		l.GapX = marginX
+	} else if lw := d.ButtonRowWidth(left); marginX+lw+1 <= l.RightX {
+		// One free column between the groups is enough to tell them apart;
+		// the gap shrinks to that before the left group gives up its row.
+		l.GapX = marginX + lw + 2
+	} else {
+		l.LeftY = d.ButtonRowY() + 1
+		l.GapX = marginX
+	}
+	l.GapW = max(0, l.RightX-2-l.GapX)
+	return l
+}
+
+// DrawSplitButtons draws a split button row laid out by SplitButtonLayout.
+// activeIdx and disabled index the whole row left to right: the left group's
+// buttons first, then the right group's.
+func (d *ModalDialog) DrawSplitButtons(s tcell.Screen, left, right []string, activeIdx int, disabled []bool) {
+	l := d.SplitButtonLayout(left, right)
+	n := len(left)
+	d.clearButtonRows(s)
+	d.drawButtonGroup(s, l.LeftX, l.LeftY, left, activeIdx, disabled[:min(n, len(disabled))])
+	d.drawButtonGroup(s, l.RightX, l.RightY, right, activeIdx-n, disabled[min(n, len(disabled)):])
+}
+
+// SplitButtonClicked is ButtonClicked for a row drawn by DrawSplitButtons. It
+// answers an index into the whole row, numbered as DrawSplitButtons numbers it,
+// or -1.
+func (d *ModalDialog) SplitButtonClicked(ev *tcell.EventMouse, left, right []string) int {
+	d.TrackPress(ev)
+	l := d.SplitButtonLayout(left, right)
+	if i := d.buttonGroupHit(ev, l.LeftX, l.LeftY, left); i >= 0 {
+		return i
+	}
+	if i := d.buttonGroupHit(ev, l.RightX, l.RightY, right); i >= 0 {
+		return i + len(left)
 	}
 	return -1
 }

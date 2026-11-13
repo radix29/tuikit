@@ -164,6 +164,9 @@ type Editor struct {
 	// so a press on the old list's row and one on the new list's never pair.
 	completionClicks core.ClickTracker[int]
 	completionFrom   int // column where the replaced span starts; valid only while completionOpen
+	// completionLabelW/DetailW are the item columns' widths, measured once per
+	// item set by setCompletionItems.
+	completionLabelW, completionDetailW int
 	// completionExplicit marks a popup opened by Ctrl+Space, which always keeps a
 	// selection; cleared when it closes.
 	completionExplicit bool
@@ -192,6 +195,10 @@ type Editor struct {
 	// SetCompletionTrigger).
 	wordStart         func(line []rune, col int) int
 	completionTrigger func(line []rune, col int) bool
+
+	// lineComment is the language's line-comment prefix ToggleLineComments
+	// uses; empty disables it (see SetLineComment).
+	lineComment []rune
 }
 
 // NewEditor creates an Editor. Pass a Highlighter or nil.
@@ -281,18 +288,35 @@ func (e *Editor) SetReadOnly(v bool) { e.readOnly = v }
 // ReadOnly reports whether SetReadOnly is in force.
 func (e *Editor) ReadOnly() bool { return e.readOnly }
 
-// SetBounds positions the editor.
-func (e *Editor) SetBounds(x, y, w, h int) { e.rect = core.Rect{X: x, Y: y, W: w, H: h} }
+// SetBounds positions the editor. The same rect again changes nothing; a new
+// one keeps the scroll inside the content and never moves the cursor or the
+// selection. Wrapped, scrollRow counts visual rows, whose number changes with
+// the width: the top row keeps showing the text it showed (its logical line
+// and the segment holding its first column), so a widened editor neither
+// points past the end nor jumps to unrelated text.
+func (e *Editor) SetBounds(x, y, w, h int) {
+	r := core.Rect{X: x, Y: y, W: w, H: h}
+	if r == e.rect {
+		return
+	}
+	topRow, topCol := -1, 0
+	if e.wrapMode && e.rect.W > 0 {
+		if vls := e.buildVisualLines(e.wrapWidth()); e.scrollRow >= 0 && e.scrollRow < len(vls) {
+			topRow, topCol = vls[e.scrollRow].row, vls[e.scrollRow].start
+		}
+	}
+	e.rect = r
+	if topRow >= 0 {
+		e.scrollRow = visualIndexForCursor(e.buildVisualLines(e.wrapWidth()), topRow, topCol)
+	}
+	e.scrollRow = core.Clamp(e.scrollRow, 0, max(0, e.scrollRows()-1))
+}
 
 // Bounds returns the editor's screen rect, so a caller outside the package can
 // hit-test against it (e.g. a drag-and-drop drop-target check).
 func (e *Editor) Bounds() core.Rect { return e.rect }
 
-// CursorPos returns the caret's line and rune column, both zero-based. With
-// ScrollPos it tells a host whether a key the editor claimed actually moved
-// anything: HandleKey answers true to Up at the first line and Down at the last,
-// so a host that must fall back to its own navigation (propsheet.EditorRow in a
-// form) has to detect movement, not predict it.
+// CursorPos returns the caret's line and rune column, both zero-based.
 func (e *Editor) CursorPos() (row, col int) { return e.cursorRow, e.cursorCol }
 
 // ScrollPos returns the topmost visible line and the horizontal scroll offset in
@@ -312,14 +336,30 @@ func (e *Editor) Focused() bool { return e.active }
 
 // Text returns the editor content.
 func (e *Editor) Text() string {
+	lines := e.doc.Lines()
+	n := len(lines) - 1
+	for _, line := range lines {
+		n += len(line)
+	}
 	var sb strings.Builder
-	for i, line := range e.doc.Lines() {
+	sb.Grow(n)
+	for i, line := range lines {
 		if i > 0 {
 			sb.WriteByte('\n')
 		}
-		sb.WriteString(string(line))
+		writeRunes(&sb, line)
 	}
 	return sb.String()
+}
+
+// writeRunes appends runes to sb without the intermediate string a
+// string(runes) conversion allocates per line. Text and SelectedText size the
+// builder by rune count first, which is exact for ASCII and grows once at most
+// otherwise (BenchmarkEditorText20k).
+func writeRunes(sb *strings.Builder, runes []rune) {
+	for _, r := range runes {
+		sb.WriteRune(r)
+	}
 }
 
 // SetText replaces content, resetting the cursor, selection and undo/redo

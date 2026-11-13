@@ -71,7 +71,7 @@ var (
 // NewConfirmDialog creates a ConfirmDialog.
 func NewConfirmDialog(s tcell.Screen) *ConfirmDialog {
 	d := new(ConfirmDialog{})
-	d.InitModal(s, "Confirm", confirmDialogMinW, confirmDialogBaseH)
+	d.InitModal(s, Strings.ConfirmTitle, confirmDialogMinW, confirmDialogBaseH)
 	return d
 }
 

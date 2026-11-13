@@ -304,42 +304,52 @@ func (e *Editor) dedentAmount(line []rune) int {
 	return n
 }
 
-// isCommentedLine reports whether line, after leading whitespace, starts with
-// the SQL line-comment token "--".
-func isCommentedLine(line []rune) bool {
+// SetLineComment sets the language's line-comment prefix ("--" for SQL, "//"
+// for Go, "#" for a shell script) that ToggleLineComments (Ctrl+/) inserts and
+// strips. Empty, the default, makes ToggleLineComments a no-op and leaves
+// Ctrl+/ unclaimed: tuikit knows no language of its own.
+func (e *Editor) SetLineComment(prefix string) { e.lineComment = []rune(prefix) }
+
+// LineComment returns the prefix SetLineComment set ("" when none).
+func (e *Editor) LineComment() string { return string(e.lineComment) }
+
+// leadingSpace returns the index of line's first non-whitespace rune
+// (len(line) for a blank line).
+func leadingSpace(line []rune) int {
 	i := 0
 	for i < len(line) && unicode.IsSpace(line[i]) {
 		i++
 	}
-	return i+1 < len(line) && line[i] == '-' && line[i+1] == '-'
+	return i
 }
 
-// commentLine inserts "-- " at line's first non-whitespace column (or appends it
-// if the line is blank).
-func commentLine(line []rune) []rune {
-	i := 0
-	for i < len(line) && unicode.IsSpace(line[i]) {
-		i++
-	}
-	prefix := []rune("-- ")
-	nl := make([]rune, 0, len(line)+len(prefix))
+// isCommentedLine reports whether line, after leading whitespace, starts with
+// prefix.
+func isCommentedLine(line, prefix []rune) bool {
+	i := leadingSpace(line)
+	return len(line)-i >= len(prefix) && slices.Equal(line[i:i+len(prefix)], prefix)
+}
+
+// commentLine inserts prefix and a space at line's first non-whitespace column
+// (or appends them if the line is blank).
+func commentLine(line, prefix []rune) []rune {
+	i := leadingSpace(line)
+	nl := make([]rune, 0, len(line)+len(prefix)+1)
 	nl = append(nl, line[:i]...)
 	nl = append(nl, prefix...)
+	nl = append(nl, ' ')
 	nl = append(nl, line[i:]...)
 	return nl
 }
 
-// uncommentLine strips a leading "--" (and one following space) from line. No-op
-// if line isn't commented.
-func uncommentLine(line []rune) []rune {
-	if !isCommentedLine(line) {
+// uncommentLine strips a leading prefix (and one following space) from line.
+// No-op if line isn't commented.
+func uncommentLine(line, prefix []rune) []rune {
+	if !isCommentedLine(line, prefix) {
 		return line
 	}
-	i := 0
-	for i < len(line) && unicode.IsSpace(line[i]) {
-		i++
-	}
-	j := i + 2
+	i := leadingSpace(line)
+	j := i + len(prefix)
 	if j < len(line) && line[j] == ' ' {
 		j++
 	}
@@ -352,14 +362,19 @@ func uncommentLine(line []rune) []rune {
 // ToggleLineComments comments or uncomments the current line (or every line
 // spanned by the selection): uncomments only if every affected line is already
 // commented, else comments every affected line (a blank line counts as "not
-// commented", so it gets "-- " too). An active selection is preserved, its
+// commented", so it gets the prefix too). The prefix is SetLineComment's; with
+// none set this does nothing. An active selection is preserved, its
 // columns approximately shifted by the net length change on the anchor/cursor rows
 // (a cursor inside leading whitespace can drift a column or two; accepted).
 func (e *Editor) ToggleLineComments() {
+	prefix := e.lineComment
+	if len(prefix) == 0 {
+		return
+	}
 	sr, er := e.affectedLineRange()
 	allCommented := true
 	for r := sr; r <= er; r++ {
-		if !isCommentedLine(e.doc.Line(r)) {
+		if !isCommentedLine(e.doc.Line(r), prefix) {
 			allCommented = false
 			break
 		}
@@ -368,9 +383,9 @@ func (e *Editor) ToggleLineComments() {
 	for r := sr; r <= er; r++ {
 		before := len(e.doc.Line(r))
 		if allCommented {
-			e.doc.setLine(r, uncommentLine(e.doc.Line(r)))
+			e.doc.setLine(r, uncommentLine(e.doc.Line(r), prefix))
 		} else {
-			e.doc.setLine(r, commentLine(e.doc.Line(r)))
+			e.doc.setLine(r, commentLine(e.doc.Line(r), prefix))
 		}
 		delta := len(e.doc.Line(r)) - before
 		if r == e.cursorRow {

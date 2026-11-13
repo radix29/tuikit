@@ -519,10 +519,7 @@ func (f *InputField) HandleMouse(ev *tcell.EventMouse) bool {
 }
 
 // CancelMouseDrag drops the drag latch without moving the cursor or touching
-// the selection, for a host taking the field out of a gesture rather than
-// ending one (`dialogs.FieldGesture.Clear` on a reshow). A synthetic
-// `ButtonNone` would misreport the pointer position and HandleMouse's answer
-// isn't what the caller asks.
+// the selection (core.DragCanceller).
 func (f *InputField) CancelMouseDrag() { f.mouseDragging = false }
 
 // adjustScroll keeps the caret inside the visible box, in display columns so a

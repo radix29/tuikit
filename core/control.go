@@ -11,8 +11,9 @@ import "github.com/gdamore/tcell/v3"
 // would not be interchangeable.
 
 // KeyHandler takes a key. HandleKey returns true only for a key the control
-// acted on; a host offers the key to its own navigation (Tab, arrows past an
-// edge, Escape) on false.
+// acted on — one that changed what it shows or fired a callback, so an arrow at
+// an edge is false — and a host offers the key to its own navigation (Tab,
+// arrows past an edge, Escape) on false.
 type KeyHandler interface {
 	HandleKey(ev *tcell.EventKey) bool
 }
@@ -37,6 +38,16 @@ type MouseHandler interface {
 	HandleMouse(ev *tcell.EventMouse) bool
 }
 
+// One wheel tick's scroll, the same in every control. WheelRows is vertical, in
+// whatever a control scrolls by (lines, visual rows, list items, tree nodes,
+// form rows); WheelCells is horizontal, in terminal columns, for a control
+// that scrolls by the cell (Editor, TreeView). DataGrid scrolls sideways by
+// whole data columns, a different unit, and steps one of them.
+const (
+	WheelRows  = 1
+	WheelCells = 4
+)
+
 // Focusable is a control that draws and behaves differently with keyboard
 // focus. Focus(false) also dismisses anything the control opened that would
 // otherwise linger while keys go elsewhere (a drop-down list, a completion
@@ -45,6 +56,17 @@ type MouseHandler interface {
 type Focusable interface {
 	Focus(v bool)
 	Focused() bool
+}
+
+// DragCanceller is a control holding a mouse-gesture latch a host may need to
+// drop without a release: CancelMouseDrag forgets the held press (and any thumb
+// drag) without moving the cursor, the selection or the scroll. For a host
+// taking the control out of a gesture rather than ending one, such as a dialog
+// reshown after being dismissed mid-drag (dialogs.FieldGesture.Clear), whose
+// release will never arrive. A synthetic ButtonNone would misreport the
+// pointer position.
+type DragCanceller interface {
+	CancelMouseDrag()
 }
 
 // Enabler is a control that can be switched off. A disabled control draws

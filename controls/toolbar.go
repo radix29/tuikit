@@ -50,6 +50,10 @@ type Toolbar struct {
 	// new buttons out at once: starts and widths are indexed by button, and a
 	// longer list drawn against the old layout indexed past its end.
 	bx, by, bw int
+	// laidOut says starts and widths are current for bx, by, bw and buttons, so
+	// a SetBounds with the same arguments has nothing to do. Hosts call
+	// SetBounds every frame; the layout allocates. SetButtons clears it.
+	laidOut bool
 
 	// press distinguishes a fresh Button1 press (fire the button's Action)
 	// from a continued hold over the same button (as MenuBar and TreeView). Without
@@ -70,6 +74,7 @@ func NewToolbar() *Toolbar {
 func (tb *Toolbar) SetButtons(buttons []ToolbarButton) {
 	tb.buttons = buttons
 	tb.hover = -1
+	tb.laidOut = false
 	tb.SetBounds(tb.bx, tb.by, tb.bw)
 }
 
@@ -79,7 +84,11 @@ func (tb *Toolbar) SetButtons(buttons []ToolbarButton) {
 // hidden in DropRank order rather than painted over the menu labels, which
 // is how Tools and Help vanished on a narrow terminal.
 func (tb *Toolbar) SetBounds(x, y, w int) {
+	if tb.laidOut && x == tb.bx && y == tb.by && w == tb.bw {
+		return
+	}
 	tb.bx, tb.by, tb.bw = x, y, w
+	tb.laidOut = true
 	shown := make([]bool, len(tb.buttons))
 	for i := range shown {
 		shown[i] = true

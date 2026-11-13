@@ -24,7 +24,7 @@ func (g *DataGrid) Draw(s tcell.Screen) {
 		g.drawGutterCell(s, g.rect.Y, "", theme.StyleGridHeader())
 	}
 	nulls, _ := g.rows.(NullSource)
-	g.drawRow(s, g.rect.Y, -1, g.headerCells(), nil, theme.StyleGridHeader(), gw)
+	g.drawRow(s, g.rect.Y, -1, g.headerCells(), nil, theme.StyleGridHeader(), gw, 1, 0)
 	sep := theme.On(theme.Active().GridHeader, theme.Active().GridBorder)
 	core.DrawHLine(s, g.rect.X, g.rect.Y+1, g.rect.W, sep)
 
@@ -57,15 +57,16 @@ func (g *DataGrid) Draw(s tcell.Screen) {
 				(g.cellCursor && dataIdx >= r0 && dataIdx <= r1))
 			continue
 		}
-		g.drawRow(s, y, dataIdx, cells, nulls, style, gw)
 		// A Ctrl+click-marked row is highlighted whole: the marked set is rows,
 		// not cells, so a rectangle's column range says nothing about it.
+		selFrom, selTo := 1, 0 // none
 		switch {
 		case g.rowMarked(dataIdx):
-			g.drawCellSelection(s, y, dataIdx, cells, nulls, gw, 0, max(0, len(g.columns)-1))
+			selFrom, selTo = 0, max(0, len(g.columns)-1)
 		case g.cellCursor && dataIdx >= r0 && dataIdx <= r1:
-			g.drawCellSelection(s, y, dataIdx, cells, nulls, gw, c0, c1)
+			selFrom, selTo = c0, c1
 		}
+		g.drawRow(s, y, dataIdx, cells, nulls, style, gw, selFrom, selTo)
 	}
 
 	// Status bar
@@ -153,25 +154,50 @@ func (g *DataGrid) drawGutterCell(s tcell.Screen, y int, text string, style tcel
 // xOffset+g.rect.X (xOffset reserves the row-number gutter, 0 when off).
 // scrollCol, like scrollRow, is a data index (leading columns hidden), not a
 // pixel offset, so a scrolled grid's columns start flush left and boundaries
-// never split mid-cell. row is the data row, for nulls (nil for the header row).
-func (g *DataGrid) drawRow(s tcell.Screen, y, row int, cells []string, nulls NullSource, style tcell.Style, xOffset int) {
+// never split mid-cell. row is the data row, for nulls (nil for the header row);
+// a NULL cell is dimmed.
+//
+// Columns selFrom..selTo (none when selFrom > selTo) draw in the selection
+// style, dimmed while the grid is inactive — a marked row, or the row's slice of
+// the cell-cursor block. A selected column past the row's last cell still
+// draws, blank. One pass: painting the row and then its selection over it drew
+// every selected cell twice.
+func (g *DataGrid) drawRow(s tcell.Screen, y, row int, cells []string, nulls NullSource, style tcell.Style, xOffset, selFrom, selTo int) {
 	p := theme.Active()
+	selSt := theme.StyleGridSelected()
+	if !g.active {
+		selSt = theme.On(p.GridRowAlt, p.TextHighlight)
+	}
 	col := g.rect.X + xOffset
-	for i := g.scrollCol; i < len(cells) && i < len(g.colWidths); i++ {
-		cell := cells[i]
+	for i := g.scrollCol; i < len(g.colWidths); i++ {
 		cw := g.colWidths[i]
 		if col >= g.rect.Right() {
 			break
 		}
-		cellStyle := style
+		selected := i >= selFrom && i <= selTo
+		if i >= len(cells) && !selected {
+			col += cw
+			continue
+		}
+		var cell string
+		if i < len(cells) {
+			cell = cells[i]
+		}
+		cellStyle, sepStyle := style, style
+		if selected {
+			cellStyle = selSt
+		}
 		if nulls != nil && nulls.IsNull(row, i) {
-			cellStyle = style.Foreground(p.TextDim)
+			cellStyle = cellStyle.Foreground(p.TextDim)
+		}
+		if selected {
+			sepStyle = cellStyle
 		}
 		avail := min(cw, g.rect.Right()-col)
 		core.FillRect(s, core.Rect{X: col, Y: y, W: avail, H: 1}, ' ', cellStyle)
 		core.DrawTextLine(s, col+1, y, avail-2, cellStyle, cell)
 		if col+cw-1 < g.rect.Right() {
-			core.PutRune(s, col+cw-1, y, '|', style.Foreground(p.GridBorder))
+			core.PutRune(s, col+cw-1, y, '|', sepStyle.Foreground(p.GridBorder))
 		}
 		col += cw
 	}
@@ -229,42 +255,6 @@ func (g *DataGrid) drawGroupRow(s tcell.Screen, y int, cells []string, xOffset i
 		}
 		if col+cw-1 < r.Right() {
 			core.PutRune(s, col+cw-1, y, '|', sep)
-		}
-		col += cw
-	}
-}
-
-// drawCellSelection highlights the selected block's cells in the row at screen
-// row y, whose cells the caller passes: every column in [c0,c1] on screen
-// (scrollCol onward). A single cell is c0 == c1 == selCol. A NULL cell (nulls,
-// as in drawRow) is dimmed.
-func (g *DataGrid) drawCellSelection(s tcell.Screen, y, row int, cells []string, nulls NullSource, xOffset, c0, c1 int) {
-	p := theme.Active()
-	st := theme.StyleGridSelected()
-	if !g.active {
-		st = theme.On(p.GridRowAlt, p.TextHighlight)
-	}
-	col := g.rect.X + xOffset
-	for i := g.scrollCol; i < len(g.colWidths); i++ {
-		cw := g.colWidths[i]
-		if col >= g.rect.Right() {
-			break
-		}
-		if i >= c0 && i <= c1 {
-			var cellText string
-			if i < len(cells) {
-				cellText = cells[i]
-			}
-			cellSt := st
-			if nulls != nil && nulls.IsNull(row, i) {
-				cellSt = st.Foreground(p.TextDim)
-			}
-			avail := min(cw, g.rect.Right()-col)
-			core.FillRect(s, core.Rect{X: col, Y: y, W: avail, H: 1}, ' ', cellSt)
-			core.DrawTextLine(s, col+1, y, avail-2, cellSt, cellText)
-			if col+cw-1 < g.rect.Right() {
-				core.PutRune(s, col+cw-1, y, '|', cellSt.Foreground(p.GridBorder))
-			}
 		}
 		col += cw
 	}

@@ -56,8 +56,8 @@ func TestCursorScreenPosWrapMode(t *testing.T) {
 func TestCompletionRectFollowsWrappedCursorRow(t *testing.T) {
 	e := newWrappedTestEditor("aaaa bbbb cccc\nselect x", 10, 6)
 	e.cursorRow, e.cursorCol = 1, 8
-	e.completionOpen, e.completionFrom = true, 7
-	e.completionItems = []CompletionItem{{Label: "xyz", Text: "xyz"}}
+	e.completionOpen = true
+	e.setCompletionItems([]CompletionItem{{Label: "xyz", Text: "xyz"}}, 7)
 
 	r := e.completionRect()
 	if r.Y != 3 {

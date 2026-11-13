@@ -10,10 +10,6 @@ import (
 // drawn with one space of padding either side.
 const ToolRowGap = 1
 
-// ToolRowMoreLabel is the cell that stands in for the cells a row is too
-// narrow to draw.
-const ToolRowMoreLabel = "More ▾"
-
 // ToolCell is one clickable cell of a ToolRow.
 //
 // Selected, Disabled and Reason are for the host's drawing and gating: the row
@@ -90,7 +86,7 @@ func (tr *ToolRow) Layout(r core.Rect, prefix string) int {
 	if prefix != "" {
 		x0 += core.DisplayWidth(prefix) + 1
 	}
-	moreW := core.DisplayWidth(ToolRowMoreLabel) + 2
+	moreW := core.DisplayWidth(Strings.More) + 2
 
 	shown := make([]bool, len(tr.Cells))
 	order := make([]int, len(tr.Cells))
@@ -135,7 +131,7 @@ func (tr *ToolRow) Layout(r core.Rect, prefix string) int {
 		x = r.X + 1
 	}
 	if x+moreW <= r.Right() {
-		tr.More = ToolCell{Label: ToolRowMoreLabel, Rect: core.Rect{X: x, Y: r.Y, W: moreW, H: 1}}
+		tr.More = ToolCell{Label: Strings.More, Rect: core.Rect{X: x, Y: r.Y, W: moreW, H: 1}}
 		x += moreW + ToolRowGap
 	}
 	return x

@@ -121,7 +121,7 @@ func (e *Editor) CloseCompletion() { e.closeCompletion() }
 func (e *Editor) closeCompletion() {
 	e.completionOpen = false
 	e.completionExplicit = false
-	e.completionItems = nil
+	e.setCompletionItems(nil, 0)
 	e.completionSel = 0
 	e.completionScroll = 0
 	e.completionClicks.Reset()
@@ -162,8 +162,7 @@ func (e *Editor) updateCompletion() {
 		e.closeCompletion()
 		return
 	}
-	e.completionItems = items
-	e.completionFrom = from
+	e.setCompletionItems(items, from)
 	e.completionClicks.Reset()
 	switch {
 	case !e.completionExplicit && !hasPrefixCompletion(items):
@@ -292,8 +291,7 @@ func (e *Editor) triggerCompletionExplicit() {
 		e.closeCompletion()
 		return
 	}
-	e.completionItems = items
-	e.completionFrom = from
+	e.setCompletionItems(items, from)
 	e.completionClicks.Reset()
 	e.completionOpen = true
 	e.completionExplicit = true
@@ -525,21 +523,26 @@ func (e *Editor) dragCompletionScrollbar(my int) {
 // Draw
 // ---------------------------------------------------------------------------
 
-// completionColumnWidths computes the label and detail column widths for the
-// current items, shared by completionRect and DrawOverlay so they agree on the
-// space detail got.
-func (e *Editor) completionColumnWidths() (labelW, detailW int) {
-	for _, it := range e.completionItems {
-		if w := core.DisplayWidth(it.Label); w > labelW {
-			labelW = w
-		}
-		if w := core.DisplayWidth(it.Detail); w > detailW {
-			detailW = w
-		}
+// setCompletionItems installs a provider's answer and measures its columns
+// once: completionRect runs on every draw and every popup mouse event, and
+// measuring each label and detail there cost three sweeps per frame.
+func (e *Editor) setCompletionItems(items []CompletionItem, from int) {
+	e.completionItems = items
+	e.completionFrom = from
+	labelW, detailW := 0, 0
+	for _, it := range items {
+		labelW = max(labelW, core.DisplayWidth(it.Label))
+		detailW = max(detailW, core.DisplayWidth(it.Detail))
 	}
-	labelW = min(labelW, maxCompletionLabelW)
-	detailW = min(detailW, maxCompletionDetailW)
-	return labelW, detailW
+	e.completionLabelW = min(labelW, maxCompletionLabelW)
+	e.completionDetailW = min(detailW, maxCompletionDetailW)
+}
+
+// completionColumnWidths is the label and detail column widths
+// setCompletionItems measured, shared by completionRect and DrawOverlay so they
+// agree on the space detail got.
+func (e *Editor) completionColumnWidths() (labelW, detailW int) {
+	return e.completionLabelW, e.completionDetailW
 }
 
 // completionRect computes the popup's on-screen rect, anchored under the start

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gdamore/tcell/v3"
 	"github.com/gdamore/tcell/v3/vt"
+	"github.com/radix29/tuikit/core"
 	"github.com/radix29/tuikit/theme"
 	"github.com/radix29/tuikit/tuikittest"
 )
@@ -231,15 +232,15 @@ func TestDropDownWheelScrollsWithoutMovingTheSelection(t *testing.T) {
 	if !d.HandleMouse(tuikittest.Mouse(3, 5, tcell.WheelDown)) {
 		t.Fatal("wheel over the open list = false, want true")
 	}
-	if d.Selected() != 0 || d.firstShown() != 3 {
-		t.Fatalf("after wheel: selected=%d top=%d, want 0 and 3", d.Selected(), d.firstShown())
+	if d.Selected() != 0 || d.firstShown() != core.WheelRows {
+		t.Fatalf("after wheel: selected=%d top=%d, want 0 and %d", d.Selected(), d.firstShown(), core.WheelRows)
 	}
 	if d.HandleMouse(tuikittest.Mouse(30, 5, tcell.WheelDown)) {
 		t.Fatal("wheel beside the list = true, want false (not ours)")
 	}
 	d.HandleMouse(tuikittest.Mouse(3, 3, tcell.Button1))
-	if d.Selected() != 3 {
-		t.Fatalf("click on the first shown row picked %d, want 3", d.Selected())
+	if d.Selected() != core.WheelRows {
+		t.Fatalf("click on the first shown row picked %d, want %d", d.Selected(), core.WheelRows)
 	}
 }
 

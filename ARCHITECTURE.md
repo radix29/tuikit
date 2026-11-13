@@ -64,6 +64,13 @@ A dialog button closes the dialog on the *press*, so the release never reaches
 its latch reset (the dialog is already hidden). The next showing then refused
 its first click and looked frozen; `ModalDialog.Show()` clears both latches.
 
+A row with a left group as well (a destructive button kept away from the
+default, like goSSMS's Connect dialog's Delete) is one row, not two calls:
+`DrawSplitButtons` and `SplitButtonClicked` share `SplitButtonLayout`, which
+drops the left group to the row below when a clamped dialog cannot fit both
+side by side, so the groups never overlap. Draw status between them in its
+`GapX`/`GapW`, not at an offset of your own.
+
 ### Routers: a press claims the gesture
 
 A positional router (the host's top-level mouse handler, a panel holding
@@ -125,10 +132,13 @@ latches; acting needs `Button1`.
 
 ### dialogs.FieldGesture
 
-A click in a `widgets.InputField` starts a selection drag, and the dialog must
-end it on release *wherever* the pointer lands, replay motion to the field
-without hit-testing, and drop the latch on `Show`. Each call's placement is
-non-local:
+A click in a `widgets.InputField` starts a selection drag (as one in an
+`Editor` does, or an item or thumb drag in a `ListBox`), and the dialog must
+end it on release *wherever* the pointer lands, replay motion to the control
+without hit-testing, and drop the latch on `Show`. `FieldGesture` holds any
+`core.MouseHandler`; one that is also a `core.DragCanceller` (InputField,
+ListBox, Editor) has its own latch dropped by `Clear`. Each call's placement
+is non-local:
 
 - `Release` at the very top of `HandleMouse`, **before**
   `ConsumeOutsideClick` and any mode early-return — both return without
@@ -139,8 +149,8 @@ non-local:
   over the button row fire a button.
 - `Claim` on the press in a field, so the press is routed through the gesture
   rather than the widget's own bounds check (which a stale latch skips).
-- `Clear` in `Show`, which also drops the field's own latch
-  (`InputField.CancelMouseDrag`): a dialog that reuses its fields and was
+- `Clear` in `Show`, which also drops the control's own latch
+  (`CancelMouseDrag`): a dialog that reuses its fields and was
   dismissed mid-drag handed back a latched field whose next press armed no
   anchor.
 
@@ -227,9 +237,15 @@ A hover hint (`Toolbar`, `TreeView`'s title button) is an `Overlay` whose
 - **`HandleKey`/`HandleMouse` return `true` only for events acted on** —
   never "focused, so consumed". `propsheet.Form` falls back to its own
   Tab/Up/Down only on `false`, so an always-`true` widget is a keyboard trap.
-  `DataGrid` answers `true` to every arrow, so `propsheet.GridRow` snapshots
-  `SelectedCell`/`ScrollCol` around the key and reports what moved: detect
-  movement, never predict it.
+  A key is acted on when it changed something the user can see (selection,
+  cursor, scroll, text, an expanded node, a popup) or fired a callback: Up on
+  the first row, PgDn on an empty grid and Enter on a read-only one are
+  `false`. `DataGrid`, `Editor`, `TreeView` and `ListBox` compare their
+  visible state around the key — detect, never predict — so `propsheet`'s
+  `GridRow` and `EditorRow` forward the answer as it is. A control does not
+  test its own focus: the host routes keys to the one it focused.
+  (`widgets.InputField` does not follow this yet: it tests its focus and
+  claims every key it binds.)
 - **Mouse return values follow one rule** (`core.MouseHandler`'s doc):
   plain motion is never claimed (hover may be tracked, but `true` only for a
   release ending the control's own gesture, or with an overlay open); a wheel
@@ -237,10 +253,16 @@ A hover hint (`Toolbar`, `TreeView`'s title button) is an `Overlay` whose
   menu dismisses it, a right-click then falling through so the host can open
   the next menu there. A host moves keyboard focus on a *press* only, never
   on a claimed hover or wheel: `PropertySheet` once moved focus to its page
-  list whenever the pointer crossed it.
+  list whenever the pointer crossed it. One tick scrolls `core.WheelRows`
+  vertically and `core.WheelCells` sideways in every control (`DataGrid`
+  sideways: one data column).
 - **`SetBounds` does nothing when the rect hasn't changed** — hosts lay out in
   `Draw`, every frame; a `ListBox` re-running `ensureVisible` there snapped
-  the wheel back to the selection. A `DataGrid` host that changes cells in
+  the wheel back to the selection. A changed rect pulls the scroll back inside
+  the content and never moves the selection or cursor (`ListBox` and
+  `TreeView` also scroll the selection into view); a wrapped `Editor` keeps
+  its top line, as its visual-row count changes with the width.
+  `TestContractSetBounds*` holds every control to it. A `DataGrid` host that changes cells in
   place calls `RefreshColumnWidths`; a setter that changes widths defers its
   recompute to `Draw`.
 - **Never `DataGrid.SetData` on a grid being navigated** — it drops cursor,
@@ -257,6 +279,9 @@ A hover hint (`Toolbar`, `TreeView`'s title button) is an `Overlay` whose
   setting a picked value.
 - **A disabled control keeps its place in the focus ring** — drawn greyed,
   refusing input, never removed (removal renumbers focus indexes).
+  `propsheet.Form` is the exception: it skips a disabled row when moving
+  focus, as it finds the next focusable row by walking its rows each time and
+  holds no index a skip could break.
 - **Don't rely on a mouse modifier, Shift especially**: VTE terminals take
   Shift+mouse for their own selection and forward nothing. A Shift+mouse
   gesture also accepts another modifier (`DataGrid` takes Shift or Alt) and a keyboard

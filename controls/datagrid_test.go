@@ -459,14 +459,15 @@ func TestRestoringUndraggedWidthsDoesNotRescan(t *testing.T) {
 		t.Errorf("an un-dragged restore rescanned %d rows, want 0", counting.calls-base)
 	}
 
-	// A dragged width still survives one, and is worth the single rescan.
+	// A dragged width still survives one, reapplied over the widths SetSource
+	// measured (OP3): no rescan either.
 	g.SetColumnWidth(1, 25)
 	widths := g.ColumnWidthOverrides()
 	g.SetSource([]string{"A", "B"}, counting) // discards the overrides
 	base = counting.calls
 	g.restoreOverrideWidths(widths)
-	if counting.calls == base {
-		t.Error("a restored drag did not recompute the column widths")
+	if counting.calls != base {
+		t.Errorf("a restored drag rescanned %d rows, want 0", counting.calls-base)
 	}
 	if g.colWidths[1] != 25 {
 		t.Errorf("colWidths[1] = %d after restore, want the dragged 25", g.colWidths[1])

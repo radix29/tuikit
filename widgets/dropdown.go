@@ -348,9 +348,9 @@ func (d *DropDown) HandleMouse(ev *tcell.EventMouse) bool {
 		}
 		top := d.firstShown()
 		if b&tcell.WheelUp != 0 {
-			top -= 3
+			top -= core.WheelRows
 		} else {
-			top += 3
+			top += core.WheelRows
 		}
 		d.top = core.Clamp(top, 0, max(len(d.items)-rows, 0))
 		return true

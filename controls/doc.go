@@ -2,7 +2,8 @@
 //
 //   - MenuBar / ContextMenu — application menu bar (menu_bar.go) and floating
 //     right-click popup menu (context_menu.go); their shared MenuItem/Menu types
-//     live in menu_item.go, and the nested submenu machinery in menu_cascade.go
+//     live in menu_item.go, and every menu box (root and submenus: draw, scroll,
+//     hit-test, keys) in menu_box.go
 //   - Toolbar — row of icon-only buttons with hover tooltips (toolbar.go)
 //   - ToolRow — a panel's one-row text toolbar: layout, hit-testing, the
 //     "More ▾" overflow and the gated Run, drawn by the host (tool_row.go); it hides cells by the

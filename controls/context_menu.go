@@ -3,7 +3,6 @@ package controls
 import (
 	"github.com/gdamore/tcell/v3"
 	"github.com/radix29/tuikit/core"
-	"github.com/radix29/tuikit/theme"
 )
 
 // ---------------------------------------------------------------------------
@@ -13,23 +12,13 @@ import (
 // ContextMenu is a floating popup menu shown on right-click.
 type ContextMenu struct {
 	x, y    int // requested position, from Show() — unclamped
-	items   []MenuItem
-	hover   int
 	visible bool
 
-	// drawnX, drawnY cache the on-screen column/row Draw last clamped the menu to
-	// (see geometry); HandleMouse hit-tests against these rather than the raw x,y
-	// above, having no tcell.Screen to recompute the clamp. Draw runs once per
-	// event-loop iteration right after the event that called Show() and before the
-	// next input event (the host's draw-after-every-event loop), so by the time a
-	// click can land the cache reflects what was painted. Otherwise a menu shown near the right or bottom
-	// edge draws shifted while hit-testing stays anchored to the original request.
-	drawnX, drawnY int
-
-	// cascade holds any open submenu levels (see menuCascade). Cleared by
-	// Show and Hide so a cascade never survives into the menu's next
-	// showing — the same rule ModalDialog.Show follows for its drag latch.
-	cascade menuCascade
+	// menu is the root box and any open submenu levels (menuCascade); its rects
+	// are where DrawOverlay last placed each box, which HandleMouse hit-tests.
+	// Show resets it, so a cascade never survives into the menu's next showing —
+	// the same rule ModalDialog.Show follows for its drag latch.
+	menu menuCascade
 
 	// press distinguishes a fresh Button1 press from a continued hold,
 	// needed once a click can leave the menu open: clicking a cascade item keeps the
@@ -39,14 +28,16 @@ type ContextMenu struct {
 	press core.PressLatch
 }
 
+// contextMenuMinW is a context menu's (and every submenu's) narrowest box.
+const contextMenuMinW = 20
+
 // Show displays the menu at (x,y) with the given items.
 func (cm *ContextMenu) Show(x, y int, items []MenuItem) {
 	cm.x, cm.y = x, y
-	cm.drawnX, cm.drawnY = x, y
-	cm.items = items
-	cm.hover = -1
+	cm.menu.setRoot(items, -1)
+	root := cm.menu.root()
+	root.rect = core.Rect{X: x, Y: y, W: root.liveWidth(contextMenuMinW), H: len(items) + 2}
 	cm.visible = true
-	cm.cascade.reset()
 	cm.press.Clear()
 }
 
@@ -57,108 +48,68 @@ func (cm *ContextMenu) Show(x, y int, items []MenuItem) {
 // would start the list again. Out-of-range and unselectable indexes are
 // ignored, leaving the hover where Show left it.
 func (cm *ContextMenu) SetHover(i int) {
-	if i >= 0 && i < len(cm.items) && !menuItemSkippable(cm.items[i]) {
-		cm.hover = i
+	items := cm.Items()
+	if i >= 0 && i < len(items) && !menuItemSkippable(items[i]) {
+		cm.menu.root().hover = i
 	}
 }
 
 // Hide dismisses the menu and every submenu open under it.
 func (cm *ContextMenu) Hide() {
 	cm.visible = false
-	cm.cascade.reset()
+	if len(cm.menu.boxes) > 0 {
+		cm.menu.reset()
+	}
 }
 
 // OverlayActive reports whether the menu is shown (core.Overlay).
 func (cm *ContextMenu) OverlayActive() bool { return cm.visible }
 
-// Items returns the entries currently shown, for a caller that has to act on
-// the menu without a screen to click on — the entry in force is bulleted by
+// Items returns the entries last shown, for a caller that has to act on the
+// menu without a screen to click on — the entry in force is bulleted by
 // whoever built the list, so match on a substring rather than the whole label.
-func (cm *ContextMenu) Items() []MenuItem { return cm.items }
-
-// geometry returns the clamped column, row, width, and height the menu
-// should draw at for screen s — shifted left/up from the requested (x,y) if
-// it would otherwise run off the right or bottom edge.
-func (cm *ContextMenu) geometry(s tcell.Screen) (x, y, w, h int) {
-	sw, sh := s.Size()
-	w = menuContentWidth(cm.items, 20)
-	h = len(cm.items) + 2
-	x, y = cm.x, cm.y
-	if x+w > sw {
-		x = sw - w
+func (cm *ContextMenu) Items() []MenuItem {
+	if len(cm.menu.boxes) == 0 {
+		return nil
 	}
-	if y+h > sh {
-		y = sh - h
-	}
-	// Lower clamps for a menu bigger than the screen, where the shifts above
-	// go negative and push the box off the opposite edge — the top rows, the
-	// ones hover starts on, being the ones lost. This is defensive — a
-	// context menu is short enough to fit any usable terminal; MenuBar's
-	// dropdown, which need not be, scrolls instead.
-	x = max(x, 0)
-	y = max(y, 0)
-	return x, y, w, h
+	return cm.menu.root().items
 }
 
 // DrawOverlay renders the menu, if shown. The whole menu is an overlay, so the
-// host calls it after everything it may cover has drawn.
+// host calls it after everything it may cover has drawn. A menu that would run
+// off the right or bottom edge shifts left/up from where it was asked for; one
+// taller than the screen scrolls.
 func (cm *ContextMenu) DrawOverlay(s tcell.Screen) {
 	if !cm.visible {
 		return
 	}
-	x, y, w, h := cm.geometry(s)
-	cm.drawnX, cm.drawnY = x, y
-
-	itemStyle := theme.StyleMenuBar()
-	borderStyle := theme.StyleMenuLine()
-	r := core.Rect{X: x, Y: y, W: w, H: h}
-	core.FillRect(s, r, ' ', itemStyle)
-	core.DrawBox(s, r, borderStyle)
-
-	for i, item := range cm.items {
-		iy := y + 1 + i
-		drawMenuRow(s, x, iy, w, item, i == cm.hover, borderStyle)
+	sw, _ := s.Size()
+	root := cm.menu.root()
+	w := root.measure(contextMenuMinW)
+	x := cm.x
+	if x+w > sw {
+		x = sw - w
 	}
-	cm.cascade.draw(s, cm.items, r, 0)
+	root.place(s, x, cm.y, w, false)
+	cm.menu.draw(s)
 }
 
-// drawnRect returns the box the menu was last painted in, using the same
-// width/height maths as geometry so hit-testing matches what was drawn.
-func (cm *ContextMenu) drawnRect() core.Rect {
-	return core.Rect{X: cm.drawnX, Y: cm.drawnY, W: menuContentWidth(cm.items, 20), H: len(cm.items) + 2}
-}
+// drawnRect returns the root box as DrawOverlay last placed it.
+func (cm *ContextMenu) drawnRect() core.Rect { return cm.menu.root().rect }
 
-// HandleKey processes keyboard events.
+// HandleKey processes keyboard events. Every key is consumed while the menu
+// is shown.
 func (cm *ContextMenu) HandleKey(ev *tcell.EventKey) bool {
 	if !cm.visible {
 		return false
 	}
-	if run, handled := cm.cascade.handleKey(ev, cm.items); handled {
-		if run != nil {
-			cm.Hide()
-			run()
-		}
-		return true
-	}
-	switch ev.Key() {
-	case tcell.KeyEscape:
+	switch res, run := cm.menu.handleKey(ev); res {
+	case menuKeyDismiss:
 		cm.Hide()
-	case tcell.KeyUp:
-		cm.hover = stepSelectableItem(cm.items, cm.hover, -1)
-	case tcell.KeyDown:
-		cm.hover = stepSelectableItem(cm.items, cm.hover, 1)
-	case tcell.KeyRight:
-		cm.cascade.openAt(cm.items, 0, cm.hover)
-	case tcell.KeyEnter:
-		if cm.hover >= 0 && cm.hover < len(cm.items) {
-			if cm.cascade.openAt(cm.items, 0, cm.hover) {
-				return true
-			}
-			item := cm.items[cm.hover]
-			cm.Hide()
-			if !item.Divider && item.Action != nil && item.enabled() {
-				item.Action()
-			}
+	case menuKeyRun:
+		cm.Hide()
+		if run != nil {
+			run()
 		}
 	}
 	return true
@@ -172,7 +123,7 @@ func (cm *ContextMenu) HandleMouse(ev *tcell.EventMouse) bool {
 	mx, my := ev.Position()
 	cm.press.Release(ev)
 
-	level, row, inside := cm.cascade.hit(cm.drawnRect(), mx, my)
+	level, item, inside := cm.menu.hit(mx, my)
 	if !inside {
 		// A click outside dismisses the menu and stops there: it must not also reach
 		// whatever it landed on (see ModalDialog.ConsumeOutsideClick, which likewise
@@ -187,38 +138,10 @@ func (cm *ContextMenu) HandleMouse(ev *tcell.EventMouse) bool {
 		}
 		return consumed
 	}
-
-	items := cm.cascade.levelItems(cm.items, level)
-	if row < 0 || row >= len(items) {
-		return true
-	}
-	item := items[row]
-	if item.Divider || !item.enabled() {
-		// A click anywhere inside the menu dismisses it, even on a row that
-		// can't act — otherwise a disabled item leaves the popup stuck open.
-		if cm.press.Fresh(ev) {
-			cm.Hide()
-		}
-		return true
-	}
-
-	// Hovering a row is what opens its submenu, and closes any submenu of a
-	// sibling row that was open — the same level can only show one.
-	if level == 0 {
-		cm.hover = row
-	} else {
-		cm.cascade.setHover(level, row)
-	}
-	if !cm.cascade.openAt(cm.items, level, row) {
-		cm.cascade.popTo(level)
-	}
-
-	if cm.press.Fresh(ev) {
-		if len(item.Sub) == 0 {
-			cm.Hide()
-			if item.Action != nil {
-				item.Action()
-			}
+	if dismiss, run := cm.menu.handleMouse(ev, level, item, cm.press.Fresh(ev)); dismiss {
+		cm.Hide()
+		if run != nil {
+			run()
 		}
 	}
 	return true

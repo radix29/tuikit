@@ -1,6 +1,7 @@
 package dialogs
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/gdamore/tcell/v3"
@@ -59,7 +60,7 @@ type TypedConfirmDialog struct {
 // NewTypedConfirmDialog creates a TypedConfirmDialog.
 func NewTypedConfirmDialog(s tcell.Screen) *TypedConfirmDialog {
 	d := &TypedConfirmDialog{}
-	d.InitModal(s, "Confirm", typedConfirmW, typedConfirmH)
+	d.InitModal(s, Strings.ConfirmTitle, typedConfirmW, typedConfirmH)
 	return d
 }
 
@@ -132,7 +133,7 @@ func (d *TypedConfirmDialog) matched() bool {
 // treated as a cancel, so the user must fix the input or explicitly back out.
 func (d *TypedConfirmDialog) finish(answer ConfirmAnswer) {
 	if answer == ConfirmYes && !d.matched() {
-		d.status = "Text doesn't match — action not confirmed."
+		d.status = Strings.TextMismatch
 		return
 	}
 	d.Hide()
@@ -169,7 +170,7 @@ func (d *TypedConfirmDialog) Draw(s tcell.Screen) {
 		core.DrawTextClipped(s, x, inner.Y+1+i, w, msgStyle, line)
 	}
 	extra := len(d.msgLines) - 1
-	core.DrawTextClipped(s, lx, inner.Y+2+extra, w, msgStyle, "Type \""+d.required+"\" to confirm:")
+	core.DrawTextClipped(s, lx, inner.Y+2+extra, w, msgStyle, fmt.Sprintf(Strings.TypeToConfirm, d.required))
 	d.input.SetBounds(lx, inner.Y+3+extra)
 	d.input.Draw(s)
 

@@ -141,47 +141,49 @@ func (l *ListBox) Draw(s tcell.Screen) {
 	}
 }
 
-// HandleKey processes keyboard navigation.
+// HandleKey processes keyboard navigation. It reports true only when the key
+// moved the selection or the scroll, or fired OnActivate: Up on the first item
+// or Enter with no OnActivate answer false. It does not test focus — the host
+// routes keys to the control it has focused.
 func (l *ListBox) HandleKey(ev *tcell.EventKey) bool {
-	if !l.focused || len(l.items) == 0 {
+	if len(l.items) == 0 {
 		return false
 	}
+	sel, scroll := l.sel, l.scroll
 	switch ev.Key() {
 	case tcell.KeyUp:
-		if l.sel > 0 {
-			l.sel--
-			l.ensureVisible()
-			l.fireSelect()
-		}
+		l.sel = max(0, l.sel-1)
 	case tcell.KeyDown:
-		if l.sel < len(l.items)-1 {
-			l.sel++
-			l.ensureVisible()
-			l.fireSelect()
-		}
+		l.sel = min(len(l.items)-1, l.sel+1)
 	case tcell.KeyPgUp:
 		l.sel = max(0, l.sel-l.rect.H)
-		l.ensureVisible()
-		l.fireSelect()
 	case tcell.KeyPgDn:
 		l.sel = min(len(l.items)-1, l.sel+l.rect.H)
-		l.ensureVisible()
-		l.fireSelect()
 	case tcell.KeyHome:
 		l.sel, l.scroll = 0, 0
-		l.fireSelect()
 	case tcell.KeyEnd:
 		l.sel = len(l.items) - 1
-		l.ensureVisible()
-		l.fireSelect()
 	case tcell.KeyEnter:
-		if l.OnActivate != nil {
-			l.OnActivate(l.sel)
+		if l.OnActivate == nil {
+			return false
 		}
+		l.OnActivate(l.sel)
+		return true
 	default:
 		return false
 	}
-	return true
+	l.ensureVisible()
+	if l.sel != sel {
+		l.fireSelect()
+	}
+	return l.sel != sel || l.scroll != scroll
+}
+
+// CancelMouseDrag drops the press and thumb-drag latches without a release
+// (core.DragCanceller); selection and scroll stay.
+func (l *ListBox) CancelMouseDrag() {
+	l.press.Clear()
+	l.sbDragging = false
 }
 
 // HandleMouse processes mouse clicks and wheel scroll.
@@ -201,8 +203,9 @@ func (l *ListBox) HandleMouse(ev *tcell.EventMouse) bool {
 	// first would otherwise be read as a click on whatever item sits in
 	// that screen column. It runs ahead of the bounds check: a latched thumb
 	// drag keeps control once the mouse leaves the list, so a fast drag past
-	// the bottom still reaches the end.
-	if core.HandleScrollbarDrag(ev, l.rect.Right()-1, l.rect.Y, l.rect.H, len(l.items), &l.sbDragging, &l.scroll) {
+	// the bottom still reaches the end. Only a press on the bar starts one: an item
+	// drag (press latch held) wandering onto the bar column once grabbed the thumb.
+	if (l.sbDragging || !l.press.Held()) && core.HandleScrollbarDrag(ev, l.rect.Right()-1, l.rect.Y, l.rect.H, len(l.items), &l.sbDragging, &l.scroll) {
 		return true
 	}
 	if !l.rect.Contains(mx, my) {
@@ -230,13 +233,9 @@ func (l *ListBox) HandleMouse(ev *tcell.EventMouse) bool {
 			}
 		}
 	case tcell.WheelUp:
-		if l.scroll > 0 {
-			l.scroll--
-		}
+		l.scroll = max(0, l.scroll-core.WheelRows)
 	case tcell.WheelDown:
-		if l.scroll < len(l.items)-l.rect.H {
-			l.scroll++
-		}
+		l.scroll = max(l.scroll, min(len(l.items)-l.rect.H, l.scroll+core.WheelRows))
 	}
 	return true
 }

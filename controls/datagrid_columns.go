@@ -2,30 +2,30 @@ package controls
 
 import (
 	"github.com/radix29/tuikit/core"
-	"strconv"
 )
 
 // computeColWidths sizes columns from their header plus up to colWidthSampleRows
 // data rows, so a huge result set doesn't slow SetSource. A cell is measured only
 // as far as the clamp can see: past max(maxW, 6) columns every width clamps to
 // the same result. Measuring whole cells cost 0.3-0.7 s per call for one column
-// of 256 KB XML values, on the UI goroutine, and this runs on every SetSource,
-// SetBounds and column drag.
+// of 256 KB XML values, on the UI goroutine, and this runs on every SetSource
+// and SetBounds. A change of overrides alone (a column drag) goes through
+// reapplyColWidths instead, which keeps the measured widths.
 func (g *DataGrid) computeColWidths() {
 	g.widthsDirty = false
 	if g.errorMode {
+		g.naturalWidths = nil
 		g.colWidths = []int{g.rect.W - 2}
 		if w := g.overrideWidth(0); w > 0 {
 			g.colWidths[0] = w
 		}
 		return
 	}
-	g.colWidths = make([]int, len(g.columns))
+	natural := make([]int, len(g.columns))
 	for i := range g.columns {
-		g.colWidths[i] = core.DisplayWidth(g.headerLabel(i)) + 2
+		natural[i] = core.DisplayWidth(g.headerLabel(i)) + 2
 	}
-	maxW := g.maxCellWidthOrDefault()
-	cellLimit := max(maxW, 6) - 2
+	cellLimit := max(g.maxCellWidthOrDefault(), 6) - 2
 	n := min(g.rows.Len(), colWidthSampleRows)
 	for r := range n {
 		// A group row's label (cell 0) spills across the row; its other
@@ -36,15 +36,39 @@ func (g *DataGrid) computeColWidths() {
 		}
 		row := g.rows.Row(r)
 		for i, cell := range row {
-			if i >= first && i < len(g.colWidths) {
+			if i >= first && i < len(natural) {
 				// Measured as drawn: TruncateLine shows a line break as a
 				// space, which DisplayWidth counts as nothing.
-				if w := core.DisplayWidthAtMost(core.TruncateLine(cell, cellLimit), cellLimit) + 2; w > g.colWidths[i] {
-					g.colWidths[i] = w
+				if w := core.DisplayWidthAtMost(core.TruncateLine(cell, cellLimit), cellLimit) + 2; w > natural[i] {
+					natural[i] = w
 				}
 			}
 		}
 	}
+	g.naturalWidths = natural
+	g.applyColWidths()
+}
+
+// reapplyColWidths is computeColWidths for a change that leaves the content
+// alone — an override set, the fill flag flipped — reusing the measured widths.
+// A separator drag calls it per motion event: rescanning there cost up to
+// colWidthSampleRows Row() calls each, 4,000 for a 20-step drag over a
+// streamed source that builds every row. It falls back to the full measure
+// when there is nothing current to reuse (a RefreshColumnWidths pending, the
+// error row, a column count that moved).
+func (g *DataGrid) reapplyColWidths() {
+	if g.widthsDirty || g.errorMode || len(g.naturalWidths) != len(g.columns) {
+		g.computeColWidths()
+		return
+	}
+	g.applyColWidths()
+}
+
+// applyColWidths derives colWidths from naturalWidths: the clamp, the dragged
+// overrides, then the fill.
+func (g *DataGrid) applyColWidths() {
+	maxW := g.maxCellWidthOrDefault()
+	g.colWidths = append(g.colWidths[:0], g.naturalWidths...)
 	for i := range g.colWidths {
 		g.colWidths[i] = core.Clamp(g.colWidths[i], 6, maxW)
 		if w := g.overrideWidth(i); w > 0 {
@@ -98,7 +122,7 @@ func (g *DataGrid) restoreOverrideWidths(widths []int) {
 		}
 	}
 	if restored {
-		g.computeColWidths()
+		g.reapplyColWidths()
 	}
 }
 
@@ -124,7 +148,7 @@ func (g *DataGrid) SetColumnWidth(i, w int) {
 	} else {
 		g.setOverrideWidth(i, 0)
 	}
-	g.computeColWidths()
+	g.reapplyColWidths()
 }
 
 // ColumnWidth returns column i's current on-screen width, or 0 if i isn't a
@@ -158,5 +182,10 @@ func (g *DataGrid) gutterWidth() int {
 	if !g.showRowNumbers {
 		return 0
 	}
-	return core.DisplayWidth(strconv.Itoa(max(1, g.rows.Len()))) + 2
+	// Counted, not formatted: every draw and mouse event asks, and Itoa allocated.
+	digits := 1
+	for n := g.rows.Len(); n >= 10; n /= 10 {
+		digits++
+	}
+	return digits + 2
 }

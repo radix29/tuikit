@@ -427,10 +427,10 @@ func (pm *PanelManager) HandleMouse(ev *tcell.EventMouse) bool {
 	if pm.comboOpen {
 		switch ev.Buttons() {
 		case tcell.WheelUp:
-			pm.scrollCombo(-1)
+			pm.scrollCombo(-core.WheelRows)
 			return true
 		case tcell.WheelDown:
-			pm.scrollCombo(1)
+			pm.scrollCombo(core.WheelRows)
 			return true
 		}
 	}

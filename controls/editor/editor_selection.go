@@ -152,18 +152,23 @@ func (e *Editor) SelectedText() string {
 		ec = core.Clamp(ec, 0, len(line))
 		return string(line[sc:ec])
 	}
-	var sb strings.Builder
 	first := e.doc.Line(sr)
 	sc = core.Clamp(sc, 0, len(first))
-	sb.WriteString(string(first[sc:]))
-	for r := sr + 1; r < er; r++ {
-		sb.WriteByte('\n')
-		sb.WriteString(string(e.doc.Line(r)))
-	}
-	sb.WriteByte('\n')
 	last := e.doc.Line(er)
 	ec = core.Clamp(ec, 0, len(last))
-	sb.WriteString(string(last[:ec]))
+	n := len(first) - sc + ec + er - sr
+	for r := sr + 1; r < er; r++ {
+		n += len(e.doc.Line(r))
+	}
+	var sb strings.Builder
+	sb.Grow(n)
+	writeRunes(&sb, first[sc:])
+	for r := sr + 1; r < er; r++ {
+		sb.WriteByte('\n')
+		writeRunes(&sb, e.doc.Line(r))
+	}
+	sb.WriteByte('\n')
+	writeRunes(&sb, last[:ec])
 	return sb.String()
 }
 

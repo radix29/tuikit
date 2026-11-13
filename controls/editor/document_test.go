@@ -32,7 +32,7 @@ func TestDocumentVersionChangesOnEveryMutation(t *testing.T) {
 		"move lines up":     func(e *Editor) { e.cursorRow = 1; e.MoveLinesUp() },
 		"indent":            func(e *Editor) { e.IndentLines() },
 		"dedent":            func(e *Editor) { e.cursorRow = 1; e.DedentLines() },
-		"toggle comments":   func(e *Editor) { e.ToggleLineComments() },
+		"toggle comments":   func(e *Editor) { e.SetLineComment("--"); e.ToggleLineComments() },
 		"delete word left":  func(e *Editor) { e.cursorCol = 3; e.deleteWordLeft() },
 		"delete word right": func(e *Editor) { e.deleteWordRight() },
 		"cut a selection":   func(e *Editor) { e.SelectAll(); e.Cut() },

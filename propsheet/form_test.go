@@ -6,6 +6,7 @@ import (
 
 	"github.com/gdamore/tcell/v3"
 	"github.com/radix29/tuikit/controls"
+	"github.com/radix29/tuikit/core"
 	"github.com/radix29/tuikit/tuikittest"
 )
 
@@ -465,8 +466,8 @@ func TestFormWheelOverAnOpenDropdownScrollsTheList(t *testing.T) {
 	f.Draw(scr)
 	f.DrawOverlay(scr)
 	f.HandleMouse(tcell.NewEventMouse(listX, f.bands[0].y+1, tcell.Button1, tcell.ModNone))
-	if sel.Selected() != 3 {
-		t.Fatalf("click on the list's first row picked %d, want 3 (the wheel scrolled it by 3)", sel.Selected())
+	if sel.Selected() != core.WheelRows {
+		t.Fatalf("click on the list's first row picked %d, want %d (the wheel scrolled it by one tick)", sel.Selected(), core.WheelRows)
 	}
 }
 

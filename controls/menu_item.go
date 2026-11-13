@@ -20,7 +20,7 @@ type MenuItem struct {
 
 	// Sub, when non-empty, makes this item a cascade: it opens a submenu
 	// instead of firing Action, and draws a ▸ marker where a shortcut would
-	// otherwise go. See menuCascade.
+	// otherwise go. See menuCascade (menu_box.go).
 	Sub []MenuItem
 
 	// Note is shown in the shortcut column *while the item is disabled*, to say
@@ -39,12 +39,6 @@ type MenuItem struct {
 	// AVAILABILITY GROUP" would send the user to ask for a permission that changes
 	// nothing.
 	NoteWhen func() bool
-}
-
-// showsNote reports whether Note is the right thing to draw right now: the
-// item is disabled, and NoteWhen (if any) agrees that Note is why.
-func (it MenuItem) showsNote() bool {
-	return it.Note != "" && !it.enabled() && (it.NoteWhen == nil || it.NoteWhen())
 }
 
 // enabled reports whether it can be selected or activated right now.
@@ -121,11 +115,15 @@ func stepSelectableItem(items []MenuItem, from, dir int) int {
 // for a submenu, otherwise its shortcut. An item with a submenu has no shortcut
 // of its own (activating it only opens the submenu), but a disabled one shows
 // its note in place of the marker.
-func menuRowSuffix(it MenuItem) string {
+func menuRowSuffix(it MenuItem) string { return rowSuffix(it, it.enabled()) }
+
+// rowSuffix is menuRowSuffix with the item's Enabled already evaluated, so a
+// draw calls each predicate once (menuBox.measure).
+func rowSuffix(it MenuItem, enabled bool) string {
 	// The note outranks the ▸: a disabled cascade cannot be opened, so its
 	// marker points at a submenu the user will never see and the note is the
 	// only thing left that says why the item is grey.
-	if it.showsNote() {
+	if it.Note != "" && !enabled && (it.NoteWhen == nil || it.NoteWhen()) {
 		return it.Note
 	}
 	if len(it.Sub) > 0 {
@@ -134,30 +132,12 @@ func menuRowSuffix(it MenuItem) string {
 	return it.Shortcut
 }
 
-// menuContentWidth returns the width, in display columns, of a dropdown or
-// context-menu box wide enough to fit every item's label and shortcut,
-// floored at minW — shared by MenuBar.dropdownGeometry and
-// ContextMenu.geometry so hit-testing always matches what was drawn.
-func menuContentWidth(items []MenuItem, minW int) int {
-	w := minW
-	for _, item := range items {
-		// +6: 2 columns of border/inset padding plus a guaranteed 2-column gap between
-		// label and shortcut for whichever item ends up defining w; without the margin
-		// that widest item's label and shortcut land flush against each other.
-		if n := core.DisplayWidth(item.Label) + core.DisplayWidth(menuRowSuffix(item)) + 6; n > w {
-			w = n
-		}
-	}
-	return w
-}
-
-// menuRowStyles returns the label and shortcut styles for one item —
-// disabled (its Enabled predicate says no) beats selected/hovered, which
-// beats the plain default — shared by MenuBar.drawDropdown and
-// ContextMenu.Draw so both grey out a disabled item identically.
-func menuRowStyles(item MenuItem, selected bool) (label, shortcut tcell.Style) {
+// menuRowStyles returns the label and suffix styles for one item — disabled
+// beats selected/hovered, which beats the plain default — so every menu box
+// greys out a disabled item identically.
+func menuRowStyles(enabled, selected bool) (label, suffix tcell.Style) {
 	switch {
-	case !item.enabled():
+	case !enabled:
 		st := theme.StyleDisabled()
 		return st, st
 	case selected:
@@ -169,12 +149,10 @@ func menuRowStyles(item MenuItem, selected bool) (label, shortcut tcell.Style) {
 	}
 }
 
-// drawMenuRow renders one row of a dropdown/context-menu box at (x,y)
-// spanning w columns: a divider line, or a label plus right-aligned
-// shortcut styled per menuRowStyles — shared by MenuBar.drawDropdown and
-// ContextMenu.Draw so both use identical glyphs, padding, and
-// enabled/selected styling.
-func drawMenuRow(s tcell.Screen, x, y, w int, item MenuItem, selected bool, borderStyle tcell.Style) {
+// drawMenuRow renders one row of a menu box at (x,y) spanning w columns: a
+// divider line, or a label plus right-aligned suffix styled per menuRowStyles,
+// from the state menuBox.measure evaluated for this draw.
+func drawMenuRow(s tcell.Screen, x, y, w int, item MenuItem, st menuRowState, selected bool, borderStyle tcell.Style) {
 	if item.Divider {
 		for cx := x + 1; cx < x+w-1; cx++ {
 			core.PutRune(s, cx, y, '─', borderStyle)
@@ -183,11 +161,11 @@ func drawMenuRow(s tcell.Screen, x, y, w int, item MenuItem, selected bool, bord
 		core.PutRune(s, x+w-1, y, '┤', borderStyle)
 		return
 	}
-	labelStyle, shortcutStyle := menuRowStyles(item, selected)
+	labelStyle, suffixStyle := menuRowStyles(st.enabled, selected)
 	core.FillRect(s, core.Rect{X: x + 1, Y: y, W: w - 2, H: 1}, ' ', labelStyle)
 	core.DrawTextClipped(s, x+2, y, w-4, labelStyle, item.Label)
-	if suffix := menuRowSuffix(item); suffix != "" {
-		sx := x + w - 1 - core.DisplayWidth(suffix) - 1
-		core.DrawText(s, sx, y, shortcutStyle, suffix)
+	if st.suffix != "" {
+		sx := x + w - 1 - core.DisplayWidth(st.suffix) - 1
+		core.DrawText(s, sx, y, suffixStyle, st.suffix)
 	}
 }

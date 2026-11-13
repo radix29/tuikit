@@ -128,8 +128,21 @@ func browsable(row Row) bool {
 // after the form is built.
 func (f *Form) Rows() []Row { return f.rows }
 
-// SetBounds positions the form's content area.
-func (f *Form) SetBounds(x, y, w, h int) { f.rect = core.Rect{X: x, Y: y, W: w, H: h} }
+// SetBounds positions the form's content area. The same rect again changes
+// nothing; a new one keeps the scroll inside the content and never moves focus.
+// Draw clamps again, as rows can grow or shrink between frames. An unscrolled
+// form skips the clamp: it measures every row, a Note's a whole word-wrap, and
+// scroll 0 is always in range.
+func (f *Form) SetBounds(x, y, w, h int) {
+	r := core.Rect{X: x, Y: y, W: w, H: h}
+	if r == f.rect {
+		return
+	}
+	f.rect = r
+	if f.scroll > 0 {
+		f.scroll = core.Clamp(f.scroll, 0, f.maxScroll(f.contentWidth()))
+	}
+}
 
 // Bounds returns the content area SetBounds last gave the form.
 func (f *Form) Bounds() core.Rect { return f.rect }
@@ -437,9 +450,9 @@ func (f *Form) HandleMouse(ev *tcell.EventMouse) bool {
 			}
 		}
 		if ev.Buttons() == tcell.WheelUp {
-			f.scroll = max(0, f.scroll-3)
+			f.scroll = max(0, f.scroll-core.WheelRows)
 		} else {
-			f.scroll = min(f.maxScroll(f.contentWidth()), f.scroll+3)
+			f.scroll = min(f.maxScroll(f.contentWidth()), f.scroll+core.WheelRows)
 		}
 		return true
 	}

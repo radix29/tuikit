@@ -58,7 +58,7 @@ type PromptDialog struct {
 // NewPromptDialog creates a PromptDialog.
 func NewPromptDialog(s tcell.Screen) *PromptDialog {
 	d := &PromptDialog{}
-	d.InitModal(s, "Prompt", promptW, promptH)
+	d.InitModal(s, Strings.PromptTitle, promptW, promptH)
 	return d
 }
 
@@ -103,7 +103,7 @@ func (d *PromptDialog) syncFocus() { d.input.Focus(d.focus == promptFocusInput) 
 func (d *PromptDialog) accept() {
 	v := d.Value()
 	if v == "" {
-		d.status = "Enter a value."
+		d.status = Strings.EnterValue
 		return
 	}
 	if d.Validate != nil {

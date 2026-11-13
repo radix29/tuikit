@@ -1,6 +1,7 @@
 package dialogs
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -93,11 +94,14 @@ type FileDialog struct {
 // NewFileDialog creates the dialog.
 func NewFileDialog(s tcell.Screen) *FileDialog {
 	d := &FileDialog{}
-	d.InitModal(s, "Open File", fileDialogW, fileDialogH)
-	contentW := fileDialogW - 4                         // InnerRect (-2) minus this dialog's own 1-col margin on each side
-	fieldW := contentW - core.DisplayWidth("Path:") - 3 // label gap + '[' + ']'
-	d.pathField = widgets.NewInputField("Path:", fieldW, false)
-	d.nameField = widgets.NewInputField("File:", fieldW, false)
+	d.InitModal(s, Strings.OpenFileTitle, fileDialogW, fileDialogH)
+	// Both labels padded to the wider, so the two fields line up whatever the
+	// host's Strings say.
+	labelW := max(core.DisplayWidth(Strings.PathLabel), core.DisplayWidth(Strings.FileLabel))
+	contentW := fileDialogW - 4     // InnerRect (-2) minus this dialog's own 1-col margin on each side
+	fieldW := contentW - labelW - 3 // label gap + '[' + ']'
+	d.pathField = widgets.NewInputField(core.PadRight(Strings.PathLabel, labelW), fieldW, false)
+	d.nameField = widgets.NewInputField(core.PadRight(Strings.FileLabel, labelW), fieldW, false)
 	return d
 }
 
@@ -227,7 +231,7 @@ func (d *FileDialog) loadDir(dir string) {
 	// second press with the first row of the folder it opened.
 	d.clicks.Reset()
 
-	d.showBusy("Listing " + clean + " ...")
+	d.showBusy(fmt.Sprintf(Strings.Listing, clean))
 	infos, err := fs.List(clean)
 	d.busy = ""
 	if err != nil {

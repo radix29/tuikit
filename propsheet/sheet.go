@@ -75,6 +75,10 @@ var Strings = struct {
 	Applying   string // the default StartApplying label (OK, Apply)
 	Cancelling string // the run label once Cancel is pressed
 	Reverted   string // the message after Ctrl+Z
+	Unchanged  string // the message after Ctrl+Z on a page with nothing to revert
+
+	NotWholeNumber string // Int's validator, on text that is not an integer
+	OutOfRange     string // Int's validator, out of bounds; %d and %d are min and max
 }{
 	OK:            "OK",
 	Cancel:        "Cancel",
@@ -90,6 +94,10 @@ var Strings = struct {
 	Applying:   "Applying...",
 	Cancelling: "Cancelling...",
 	Reverted:   "Reverted to the loaded values.",
+	Unchanged:  "Nothing to revert — no unsaved changes on this page.",
+
+	NotWholeNumber: "must be a whole number",
+	OutOfRange:     "must be between %d and %d",
 }
 
 func (b sheetButton) label() string {
@@ -145,8 +153,6 @@ var ApplyingSpinner = widgets.SpinnerBraille
 // the package doc for the async load contract.
 type PropertySheet struct {
 	dialogs.ModalDialog
-
-	screen tcell.Screen
 
 	pages    []pageSlot
 	pageList *controls.ListBox
@@ -212,7 +218,7 @@ type PropertySheet struct {
 // NewPropertySheet creates an empty PropertySheet. Call SetPages, SetHeader and
 // wire the On* callbacks before the first Show.
 func NewPropertySheet(s tcell.Screen, title string) *PropertySheet {
-	p := &PropertySheet{screen: s, current: -1, hints: Strings.Hints}
+	p := &PropertySheet{current: -1, hints: Strings.Hints}
 	p.InitModal(s, title, 90, 28)
 	p.pageList = controls.NewListBox()
 	p.pageList.OnSelect = func(i int) { p.SelectPage(i) }
@@ -270,10 +276,11 @@ func (p *PropertySheet) Show() {
 func (p *PropertySheet) Relayout() { p.recomputeSize() }
 
 func (p *PropertySheet) recomputeSize() {
-	if p.screen == nil {
+	s := p.Screen()
+	if s == nil {
 		return
 	}
-	sw, sh := p.screen.Size()
+	sw, sh := s.Size()
 	p.SetSize(core.Clamp(sw-8, 72, 110), core.Clamp(sh-4, 20, 34))
 }
 
@@ -456,7 +463,8 @@ func (p *PropertySheet) Refresh(page int) {
 // RevertPage restores page's rows to the values it loaded with, without
 // re-querying, and reports whether anything changed (Refresh instead discards
 // the form and asks the server again). It asks no confirmation (discarding is
-// what was asked for) and leaves a message, since a form reverting to identical
+// what was asked for) and leaves no message: the caller does (Ctrl+Z shows
+// Strings.Reverted or Strings.Unchanged), since a form reverting to identical
 // values would look inert.
 func (p *PropertySheet) RevertPage(page int) bool {
 	if page < 0 || page >= len(p.pages) {

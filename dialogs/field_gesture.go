@@ -2,20 +2,23 @@ package dialogs
 
 import (
 	"github.com/gdamore/tcell/v3"
-	"github.com/radix29/tuikit/widgets"
+	"github.com/radix29/tuikit/core"
 )
 
-// FieldGesture is the drag latch a dialog needs for the text-selection gesture a
-// click inside an InputField starts. Embed one in any dialog with a text field
-// and drive it from HandleMouse; it is the dialog-level half of the per-widget
-// mouseDragging latch: a fresh press arms it, the held button's resends continue
-// it, and the release ends it.
+// FieldGesture is the drag latch a dialog needs for the gesture a press inside
+// one of its controls starts: a text selection in an InputField or Editor, an
+// item or thumb drag in a ListBox. Embed one in any dialog hosting such a
+// control and drive it from HandleMouse; it is the dialog-level half of the
+// control's own latch: a fresh press arms it, the held button's resends
+// continue it, and the release ends it. Without it the dialog hit-tests each
+// resend, so a drag that began in a list and crossed a text field acts on the
+// field as a fresh press.
 //
 // It is a type, not a per-dialog idiom, because the idiom is correct only in one
 // order: it depends on what ModalDialog.ConsumeOutsideClick and a dialog's mode
 // switch do to the events the latch needs. See Release and Replay.
 type FieldGesture struct {
-	field *widgets.InputField
+	field core.MouseHandler
 }
 
 // Release ends the gesture, forwarding the release to whichever field claimed
@@ -54,14 +57,15 @@ func (g *FieldGesture) Replay(ev *tcell.EventMouse) bool {
 
 // Claim gives the gesture to f and forwards the press, so the click positions
 // the cursor or starts a selection rather than only moving focus. Call it from
-// the branch whose hit-test matched f.
-func (g *FieldGesture) Claim(f *widgets.InputField, ev *tcell.EventMouse) {
+// the branch whose hit-test matched f. f should be a core.DragCanceller (InputField,
+// ListBox and Editor are), or Clear cannot reach its latch.
+func (g *FieldGesture) Claim(f core.MouseHandler, ev *tcell.EventMouse) {
 	g.field = f
 	f.HandleMouse(ev)
 }
 
-// Clear drops a held gesture without forwarding anything, and the field's own
-// mouseDragging latch with it. Call it from Show: a latch must not survive into
+// Clear drops a held gesture without forwarding anything, and the control's own
+// latch with it (core.DragCanceller). Call it from Show: a latch must not survive into
 // the dialog's next showing, or the first press of the new session reads as the
 // last one's drag continuing.
 //
@@ -74,12 +78,12 @@ func (g *FieldGesture) Claim(f *widgets.InputField, ev *tcell.EventMouse) {
 // dialog's own), and this is the only call that can reach the field's. Backup, Restore and Filter rebuild their
 // fields in show, discarding the stale one.
 func (g *FieldGesture) Clear() {
-	if g.field != nil {
-		g.field.CancelMouseDrag()
+	if c, ok := g.field.(core.DragCanceller); ok {
+		c.CancelMouseDrag()
 	}
 	g.field = nil
 }
 
-// Field is the field holding the gesture, or nil, for a caller or test that
+// Field is the control holding the gesture, or nil, for a caller or test that
 // needs more than "a gesture is in progress".
-func (g *FieldGesture) Field() *widgets.InputField { return g.field }
+func (g *FieldGesture) Field() core.MouseHandler { return g.field }

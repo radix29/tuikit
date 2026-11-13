@@ -24,7 +24,11 @@ func readOnlySafeKey(ev *tcell.EventKey) bool {
 	return false
 }
 
-// HandleKey handles keyboard input.
+// HandleKey handles keyboard input. It reports true only when the key changed
+// something (text, cursor, selection, scroll, the completion popup) or fired a
+// callback: Up on the first line, Down on the last, Backspace at the start or
+// Ctrl+Z with nothing to undo answer false, so a host (propsheet.Form) can use
+// the key for its own navigation. A key the editor doesn't bind is false too.
 func (e *Editor) HandleKey(ev *tcell.EventKey) bool {
 	// An open completion popup gets first refusal of list-navigation, commit and
 	// dismiss keys; everything else falls through, and updateCompletion at the end
@@ -35,6 +39,46 @@ func (e *Editor) HandleKey(ev *tcell.EventKey) bool {
 	if e.readOnly && !readOnlySafeKey(ev) {
 		return false
 	}
+	// Detected, never predicted: comparing what the key left behind stays right
+	// as the key handling below changes.
+	before := e.keyState()
+	bound, fired := e.applyKey(ev)
+	return bound && (fired || e.keyState() != before)
+}
+
+// editorKeyState is what HandleKey compares around a key to tell whether it was
+// acted on: everything a key can change that the user can see.
+type editorKeyState struct {
+	version                          uint64
+	cursorRow, cursorCol             int
+	scrollRow, scrollCol             int
+	selStartRow, selStartCol         int
+	selEndRow, selEndCol             int
+	hasSel, selBlock, completionOpen bool
+	completionSel, completionCount   int
+}
+
+func (e *Editor) keyState() editorKeyState {
+	st := editorKeyState{
+		version:   e.doc.Version(),
+		cursorRow: e.cursorRow, cursorCol: e.cursorCol,
+		scrollRow: e.scrollRow, scrollCol: e.scrollCol,
+		completionOpen: e.completionOpen,
+	}
+	if e.completionOpen {
+		st.completionSel, st.completionCount = e.completionSel, len(e.completionItems)
+	}
+	if e.HasSelection() {
+		st.hasSel, st.selBlock = true, e.selBlock
+		st.selStartRow, st.selStartCol, st.selEndRow, st.selEndCol = e.selectionBounds()
+	}
+	return st
+}
+
+// applyKey acts on a key HandleKey let through. bound is false for a key the
+// editor has no binding for; fired is true when it handed the key to a callback
+// (Ctrl+Space), which changes nothing HandleKey can compare.
+func (e *Editor) applyKey(ev *tcell.EventKey) (bound, fired bool) {
 	hadSelection := e.HasSelection()
 
 	mods := ev.Modifiers()
@@ -264,6 +308,9 @@ func (e *Editor) HandleKey(ev *tcell.EventKey) bool {
 	case tcell.KeyUS:
 		// Defensive: tcell v3 doesn't surface the 0x1F byte as KeyUS (see the default
 		// case), but a protocol that did would still toggle comments.
+		if len(e.lineComment) == 0 {
+			return false, false // no language prefix set: Ctrl+/ is unbound
+		}
 		e.ToggleLineComments()
 		dropSelection = false
 	default:
@@ -271,6 +318,9 @@ func (e *Editor) HandleKey(ev *tcell.EventKey) bool {
 		// Ctrl+/ emits 0x1F on legacy terminals, which tcell v3 decodes as KeyRune '_'
 		// with ModCtrl, not KeyUS; a modern keyboard protocol reports '/'. Accept both.
 		if ctrlHeld && (r == '/' || r == '_') {
+			if len(e.lineComment) == 0 {
+				return false, false // no language prefix set: Ctrl+/ is unbound
+			}
 			e.ToggleLineComments()
 			dropSelection = false
 			break
@@ -281,9 +331,11 @@ func (e *Editor) HandleKey(ev *tcell.EventKey) bool {
 		if ctrlHeld && r == ' ' {
 			if e.completionProvider != nil {
 				e.triggerCompletionExplicit()
+				fired = true
 			} else if e.OnRightClick != nil {
 				x, y := e.cursorScreenPos()
 				e.OnRightClick(x, y)
+				fired = true
 			}
 			dropSelection = false
 			break
@@ -310,7 +362,7 @@ func (e *Editor) HandleKey(ev *tcell.EventKey) bool {
 				e.selecting = false
 				e.selBlock = false
 			}
-			return false
+			return false, false
 		}
 	}
 	if dropSelection {
@@ -332,7 +384,7 @@ func (e *Editor) HandleKey(ev *tcell.EventKey) bool {
 	if e.completionOpen || (typedChar && e.canAutoOpenCompletion()) {
 		e.updateCompletion()
 	}
-	return true
+	return true, fired
 }
 
 // editorZone is the part of the editor a Button1 press began in, which owns
@@ -548,23 +600,23 @@ func (e *Editor) handleWheel(ev *tcell.EventMouse) bool {
 		// report it that way rather than as WheelLeft/WheelRight; honour both. As in
 		// DataGrid. Wrapped text has no horizontal scroll.
 		if shift && !e.wrapMode {
-			e.scrollColBy(-horizontalWheelChars)
-		} else if e.scrollRow > 0 {
-			e.scrollRow--
+			e.scrollColBy(-core.WheelCells)
+		} else {
+			e.scrollRow = max(0, e.scrollRow-core.WheelRows)
 		}
 	case tcell.WheelDown:
 		if shift && !e.wrapMode {
-			e.scrollColBy(horizontalWheelChars)
-		} else if e.scrollRow < e.scrollRows()-1 {
-			e.scrollRow++
+			e.scrollColBy(core.WheelCells)
+		} else {
+			e.scrollRow = max(e.scrollRow, min(e.scrollRows()-1, e.scrollRow+core.WheelRows))
 		}
 	case tcell.WheelLeft:
 		if !e.wrapMode {
-			e.scrollColBy(-horizontalWheelChars)
+			e.scrollColBy(-core.WheelCells)
 		}
 	case tcell.WheelRight:
 		if !e.wrapMode {
-			e.scrollColBy(horizontalWheelChars)
+			e.scrollColBy(core.WheelCells)
 		}
 	default:
 		return false
@@ -593,6 +645,11 @@ func (e *Editor) pressIsDouble(row, col int, at time.Time, mod tcell.ModMask) bo
 	}
 	return e.clicks.Press([2]int{row, col}, at)
 }
+
+// CancelMouseDrag ends a held gesture (a text selection, a scrollbar or popup
+// drag) without a release (core.DragCanceller). The selection made so far
+// stays; the next press starts afresh.
+func (e *Editor) CancelMouseDrag() { e.gesture.Release() }
 
 // SetCursorFromScreen moves the cursor to the document position under (x, y) and
 // clears any selection: HandleMouse's fresh-click targeting, exposed for callers
@@ -632,10 +689,6 @@ func (e *Editor) colForDesired() int {
 	line := e.cursorLine()
 	return min(core.RuneIndexAtColumn(line, e.desiredCol), len(line))
 }
-
-// horizontalWheelChars is how many characters one horizontal wheel tick scrolls;
-// meaningful only outside wrapMode, where scrollCol is a character offset.
-const horizontalWheelChars = 4
 
 // scrollColBy shifts scrollCol by delta (negative scrolls left), clamped so it
 // can't pass the last character of the longest line.
