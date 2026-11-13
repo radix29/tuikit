@@ -256,6 +256,13 @@ func (e *Editor) Paste(text string) {
 	if e.HasSelection() {
 		e.deleteSelection()
 	}
+	// A click leaves the selection armed with its anchor at the click point
+	// (Shift+arrow extends from it). Left armed, moving the cursor past the paste
+	// made the pasted text the selection, and the next key typed replaced it. A
+	// zero-width block caret stays armed: it is block mode (blockEditing).
+	if !e.selBlock {
+		e.selecting = false
+	}
 	e.insertText(strings.Split(strings.ReplaceAll(e.expandTabs(text), "\r\n", "\n"), "\n"))
 	e.clampCursor()
 	e.ensureCursorVisible()

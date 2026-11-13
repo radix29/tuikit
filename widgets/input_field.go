@@ -201,6 +201,10 @@ func (f *InputField) Paste(text string) {
 	if f.HasSelection() {
 		f.deleteSelection()
 	}
+	// A click leaves the selection armed with its anchor at the click point
+	// (Shift+arrow extends from it). Left armed, moving the cursor past the paste
+	// made the pasted text the selection, and the next key typed replaced it.
+	f.selecting = false
 	pasted := []rune(text)
 	newVal := make([]rune, 0, len(f.value)+len(pasted))
 	newVal = append(newVal, f.value[:f.cursor]...)

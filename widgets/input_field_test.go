@@ -384,3 +384,42 @@ func TestPasswordFieldWordJumpIsWholeField(t *testing.T) {
 		t.Errorf("Ctrl+Delete from 10: Value() = %q cursor %d, want \"hunter2 se\" 10", got, f.cursor)
 	}
 }
+
+// clickField sends one Button1 press and its release at rune column col of f.
+func clickField(f *InputField, col int) {
+	ix, y := f.InputX(), f.Bounds().Y
+	f.HandleMouse(tcell.NewEventMouse(ix+1+col, y, tcell.Button1, tcell.ModNone))
+	f.HandleMouse(tcell.NewEventMouse(ix+1+col, y, tcell.ButtonNone, tcell.ModNone))
+}
+
+// A click arms the selection with its anchor at the click point (so
+// Shift+click and Shift+arrow extend from there). Paste moved the cursor
+// without disarming it, so the pasted text became the selection and the next
+// key typed replaced it.
+func TestInputFieldPasteAfterClickLeavesNoSelection(t *testing.T) {
+	for col := 0; col <= 3; col++ {
+		f := newTestInputField("abc")
+		f.SetBounds(0, 0)
+		clickField(f, col)
+		f.Paste("XYZ")
+		if f.HasSelection() {
+			t.Fatalf("click at %d then Paste: selection %q, want none", col, f.SelectedText())
+		}
+		f.HandleKey(tcell.NewEventKey(tcell.KeyRune, "q", tcell.ModNone))
+		if want := "abc"[:col] + "XYZq" + "abc"[col:]; f.Value() != want {
+			t.Fatalf("click at %d, Paste, type q: value %q, want %q", col, f.Value(), want)
+		}
+	}
+}
+
+// The armed anchor a click leaves is what Shift+Right extends from; the paste
+// fix must disarm at the insertion, not at the release.
+func TestInputFieldShiftRightAfterClickExtendsFromClick(t *testing.T) {
+	f := newTestInputField("abcd")
+	f.SetBounds(0, 0)
+	clickField(f, 1)
+	f.HandleKey(tuikittest.Key(tcell.KeyRight, tcell.ModShift))
+	if got := f.SelectedText(); got != "b" {
+		t.Fatalf("click then Shift+Right: SelectedText() = %q, want %q", got, "b")
+	}
+}

@@ -1559,3 +1559,39 @@ func TestTextAndSelectedTextRoundTripNonASCII(t *testing.T) {
 		t.Errorf("one-line SelectedText() = %q, want %q", got, want)
 	}
 }
+
+// A click arms the selection with its anchor at the click point (so
+// Shift+click and Shift+arrow extend from there). Paste moved the cursor
+// without disarming it, so the pasted text became the selection and the next
+// key typed replaced it — every Ctrl+V, bracketed paste and drop into the
+// editor after a click.
+func TestEditorPasteAfterClickLeavesNoSelection(t *testing.T) {
+	const line = "select 1 from t"
+	for col := 0; col <= len(line); col++ {
+		e := newTestEditor(line)
+		e.SetGutterVisible(false)
+		e.SetBounds(0, 0, 40, 5)
+		clickAt(e, col, 0)
+		e.Paste("XYZ ")
+		if e.HasSelection() {
+			t.Fatalf("click at %d then Paste: selection %q, want none", col, e.SelectedText())
+		}
+		e.HandleKey(tcell.NewEventKey(tcell.KeyRune, "q", tcell.ModNone))
+		if want := line[:col] + "XYZ q" + line[col:]; e.Text() != want {
+			t.Fatalf("click at %d, Paste, type q: text %q, want %q", col, e.Text(), want)
+		}
+	}
+}
+
+// The armed anchor a click leaves is what Shift+Right extends from; the paste
+// fix must disarm at the insertion, not at the release.
+func TestEditorShiftRightAfterClickExtendsFromClick(t *testing.T) {
+	e := newTestEditor("select 1 from t")
+	e.SetGutterVisible(false)
+	e.SetBounds(0, 0, 40, 5)
+	clickAt(e, 9, 0)
+	e.HandleKey(tuikittest.Key(tcell.KeyRight, tcell.ModShift))
+	if got := e.SelectedText(); got != "f" {
+		t.Fatalf("click then Shift+Right: SelectedText() = %q, want %q", got, "f")
+	}
+}
