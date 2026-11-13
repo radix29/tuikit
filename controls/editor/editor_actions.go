@@ -60,9 +60,15 @@ func (e *Editor) SelectRange(anchorRow, anchorCol, row, col int) {
 }
 
 // Undo and Redo expose the undo/redo stack to callers outside this package (the
-// Edit menu).
-func (e *Editor) Undo() { e.undo() }
-func (e *Editor) Redo() { e.redo() }
+// Edit menu). They finish as Ctrl+Z/Ctrl+Y do: goal column re-anchored and the
+// caret scrolled into view, which the step may have moved far from the viewport.
+func (e *Editor) Undo() { e.undo(); e.afterHistoryStep() }
+func (e *Editor) Redo() { e.redo(); e.afterHistoryStep() }
+
+func (e *Editor) afterHistoryStep() {
+	e.desiredCol = e.cursorDisplayCol()
+	e.ensureCursorVisible()
+}
 
 // DuplicateLines copies the current line (or every line spanned by the
 // selection) below itself, moving the cursor into the copy. Any selection

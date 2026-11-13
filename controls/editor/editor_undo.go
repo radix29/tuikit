@@ -183,6 +183,12 @@ func (e *Editor) applyStep(st editorState) editorState {
 	e.doc.replaceRange(st.row, st.newLen, st.old)
 	e.cursorRow, e.cursorCol = st.cursorRow, st.cursorCol
 	e.clampCursor()
+	// The selection goes: its anchor may name a row the step just removed, and the
+	// next read of it (typing, SelectedText, Cut) indexed past the document. The key
+	// path dropped it afterwards anyway; Undo/Redo from the Edit menu did not.
+	// Clamping the anchor instead would keep a selection the user never made over
+	// text that just changed.
+	e.selecting, e.selBlock = false, false
 	return inv
 }
 
