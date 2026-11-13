@@ -80,6 +80,11 @@ func (s Scale) Ticks(levels int) []float64 {
 // FormatValue renders an axis label or a numeric readout compactly: exact
 // for small values, K/M/G suffixed above a thousand. Zero is "0.0" rather
 // than "0" so a zero baseline lines up with the decimal labels above it.
+//
+// Each band rounds the value to its own decimals before testing its upper
+// bound, and a value that rounds up to the bound moves to the next band.
+// Choosing the band from the unrounded value printed 999960 as "1000K" and
+// 99960 as "100.0K" — wider than the gutter sized for the usual labels.
 func FormatValue(v float64) string {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return "n/a"
@@ -88,29 +93,37 @@ func FormatValue(v float64) string {
 	if v < 0 {
 		neg, v = "-", -v
 	}
-	switch {
-	case v == 0:
+	if v == 0 {
 		return "0.0"
-	case v >= 1e9:
-		return neg + trimUnit(v/1e9, "G")
-	case v >= 1e6:
-		return neg + trimUnit(v/1e6, "M")
-	case v >= 1e3:
-		return neg + trimUnit(v/1e3, "K")
-	case v >= 10:
-		return neg + fmt.Sprintf("%.0f", v)
-	case v >= 1:
-		return neg + fmt.Sprintf("%.1f", v)
 	}
-	return neg + fmt.Sprintf("%.2f", v)
+	for _, b := range valueBands {
+		scaled := v / b.div
+		p := math.Pow10(b.decimals)
+		r := math.Round(scaled*p) / p
+		if b.below == 0 || r < b.below {
+			return neg + fmt.Sprintf("%.*f%s", b.decimals, r, b.unit)
+		}
+	}
+	panic("unreachable: the last value band is unbounded")
 }
 
-// trimUnit formats a suffixed magnitude with one decimal, dropping the
-// decimal once the value is big enough that it adds width without adding
-// information ("105K", not "105.0K").
-func trimUnit(v float64, unit string) string {
-	if v >= 100 {
-		return fmt.Sprintf("%.0f%s", v, unit)
-	}
-	return fmt.Sprintf("%.1f%s", v, unit)
+// valueBands are FormatValue's formats, smallest first. below is the bound,
+// in scaled units, the rounded value must stay under (0: unbounded). A
+// suffixed magnitude keeps one decimal until the decimal adds width without
+// adding information ("105K", not "105.0K").
+var valueBands = [...]struct {
+	div      float64
+	below    float64
+	decimals int
+	unit     string
+}{
+	{1, 1, 2, ""},
+	{1, 10, 1, ""},
+	{1, 1000, 0, ""},
+	{1e3, 100, 1, "K"},
+	{1e3, 1000, 0, "K"},
+	{1e6, 100, 1, "M"},
+	{1e6, 1000, 0, "M"},
+	{1e9, 100, 1, "G"},
+	{1e9, 0, 0, "G"},
 }
