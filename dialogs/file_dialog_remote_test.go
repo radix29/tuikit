@@ -2,6 +2,7 @@ package dialogs
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
@@ -453,4 +454,31 @@ func TestFileDialogBusyFrameStaysInsideAClampedDialog(t *testing.T) {
 			t.Fatalf("bottom border at column %d is %q, the busy frame drew over it\n%s", x, got, scr.Snapshot())
 		}
 	}
+}
+
+// A file of 1 PiB or more panicked Draw (the size unit string stopped at TB),
+// and a sparse file that size costs no disk space. The largest size an int64
+// can hold must render, not crash the UI goroutine.
+func TestFileDialogDrawsTheLargestPossibleFileSize(t *testing.T) {
+	fs := newFakeWindowsFS()
+	fs.tree[`C:\Backup`] = []FileEntry{{Name: "sparse.bak", Size: math.MaxInt64}}
+	rec := tuikittest.NewScreen(120, 40)
+	d := NewFileDialog(rec)
+	d.ShowOpenOn(fs, "Select Backup File", `C:\Backup\`, nil)
+	d.Draw(rec)
+
+	lr := d.listRect()
+	for y := 0; y < lr.H; y++ {
+		var line []rune
+		for x := lr.X; x < lr.Right(); x++ {
+			line = append(line, rec.RuneAt(x, lr.Y+y))
+		}
+		if got := string(line); strings.Contains(got, "sparse.bak") {
+			if !strings.Contains(got, "8.0 EB") {
+				t.Errorf("row rendered %q; want the size 8.0 EB", strings.TrimRight(got, " \x00"))
+			}
+			return
+		}
+	}
+	t.Fatal("no row for sparse.bak")
 }

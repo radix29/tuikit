@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v3"
+	"github.com/radix29/tuikit/core"
 	"github.com/radix29/tuikit/tuikittest"
 )
 
@@ -421,5 +422,62 @@ func TestInputFieldShiftRightAfterClickExtendsFromClick(t *testing.T) {
 	f.HandleKey(tuikittest.Key(tcell.KeyRight, tcell.ModShift))
 	if got := f.SelectedText(); got != "b" {
 		t.Fatalf("click then Shift+Right: SelectedText() = %q, want %q", got, "b")
+	}
+}
+
+// Cut deleted the selection but left the scroll where it was, so cutting the
+// tail the view sat on scrolled the window past every remaining character: the
+// field drew blank, caret off screen, over a value that was still there — read
+// by the user as the whole value having been cut.
+func TestInputFieldCutKeepsTheRestVisible(t *testing.T) {
+	f := NewInputField("", 10, false)
+	f.SetBounds(0, 0)
+	f.Focus(true)
+	f.Paste("0123456789ABCDEFGHIJ")
+	for range 10 {
+		f.HandleKey(tuikittest.Key(tcell.KeyLeft, tcell.ModShift))
+	}
+	if got := f.Cut(); got != "ABCDEFGHIJ" {
+		t.Fatalf("Cut() = %q, want %q", got, "ABCDEFGHIJ")
+	}
+	// Ten characters and the caret's cell after them don't fit a 10-wide box,
+	// so the view drops the first character, as SetValue's tail rule does.
+	if f.scroll != 1 {
+		t.Errorf("scroll = %d after Cut, want 1", f.scroll)
+	}
+	if got := drawnText(t, f); got != "123456789" {
+		t.Errorf("drawn text = %q, want %q", got, "123456789")
+	}
+}
+
+// The same with wide runes: the scroll is in columns, not runes.
+func TestInputFieldCutKeepsWideRunesVisible(t *testing.T) {
+	f := NewInputField("", 10, false)
+	f.SetBounds(0, 0)
+	f.Focus(true)
+	f.Paste(strings.Repeat("漢", 10)) // 20 columns
+	for range 5 {
+		f.HandleKey(tuikittest.Key(tcell.KeyLeft, tcell.ModShift))
+	}
+	f.Cut() // 5 runes, 10 columns left
+	if col := core.ColumnOfRune(f.value, f.cursor); col < f.scroll || col >= f.scroll+f.Width() {
+		t.Errorf("caret column %d is outside [%d, %d)", col, f.scroll, f.scroll+f.Width())
+	}
+	if got := drawnText(t, f); !strings.Contains(got, "漢") {
+		t.Errorf("drawn text = %q, want the remaining ideographs", got)
+	}
+}
+
+// SelectAll moves the caret to the end; on a value longer than the box it has
+// to scroll there too, or the caret sits off screen.
+func TestInputFieldSelectAllKeepsTheCaretVisible(t *testing.T) {
+	f := NewInputField("", 10, false)
+	f.SetBounds(0, 0)
+	f.Focus(true)
+	f.SetValue(strings.Repeat("x", 30))
+	f.ShowFromStart()
+	f.SelectAll()
+	if col := core.ColumnOfRune(f.value, f.cursor); col < f.scroll || col >= f.scroll+f.Width() {
+		t.Errorf("caret column %d is outside [%d, %d)", col, f.scroll, f.scroll+f.Width())
 	}
 }

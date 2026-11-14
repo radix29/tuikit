@@ -1,6 +1,7 @@
 package dialogs
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -368,6 +369,16 @@ func TestFormatFileSizeHelper(t *testing.T) {
 		{500, "500 B"},
 		{1536, "1.5 KB"},
 		{1048576, "1.0 MB"},
+		{0, "0 B"},
+		{1023, "1023 B"},
+		{1024, "1.0 KB"},
+		{1<<20 - 1, "1.0 MB"},
+		{1<<50 - 1, "1.0 PB"},
+		{1 << 50, "1.0 PB"},
+		{2 << 50, "2.0 PB"},
+		{1 << 60, "1.0 EB"},
+		{math.MaxInt64, "8.0 EB"},
+		{-1, "-1 B"},
 	}
 	for _, tt := range tests {
 		if got := formatFileSize(tt.in); got != tt.want {
