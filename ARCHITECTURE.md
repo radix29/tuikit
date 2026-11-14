@@ -233,7 +233,8 @@ A hover hint (`Toolbar`, `TreeView`'s title button) is an `Overlay` whose
 - **Draw a cell with `core.PutRune` or `Screen.Put`, never `SetContent`**
   (two allocations per cell per frame); fill a rect with `core.FillRect`
   (`Screen.FillArea`: one lock, ~7x faster than a `Put` per cell). A test
-  draws into a `tuikittest.Screen`, not a hand-written fake.
+  draws into a `tuikittest.Screen`, not a hand-written fake —
+  `tuikittest.NewMockScreen` when it must see the cells as tcell does.
 - **`HandleKey`/`HandleMouse` return `true` only for events acted on** —
   never "focused, so consumed". `propsheet.Form` falls back to its own
   Tab/Up/Down only on `false`, so an always-`true` widget is a keyboard trap.
@@ -267,7 +268,9 @@ A hover hint (`Toolbar`, `TreeView`'s title button) is an `Overlay` whose
   recompute to `Draw`.
 - **Never `DataGrid.SetData` on a grid being navigated** — it drops cursor,
   scroll and dragged widths; inside the grid's own `OnSelectRow` it undoes the
-  move. Use `SetDataPreservingView`.
+  move. Use `SetDataPreservingView`, which collapses a multi-row selection
+  onto the cursor; `SetSourceKeepingSelection` keeps it, for a rebuild that
+  leaves every row where it was.
 - **A host acting on whole rows reads `DataGrid.SelectedRows()`**, never
   `SelectionBounds()`: bounds are a rectangle, so Ctrl+click rows 1 and 3
   covers row 2 too.

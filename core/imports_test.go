@@ -17,6 +17,14 @@ var allowedExternal = []string{
 	"github.com/gdamore/tcell/v3/color",
 }
 
+// testKitExternal is what a test-kit package may import beyond
+// allowedExternal. tuikittest is imported by _test files only, and tcell/v3/vt
+// lives in the tcell module tuikit already requires, so it adds no
+// requirement for a module using tuikit's controls.
+var testKitExternal = map[string][]string{
+	"tuikittest": {"github.com/gdamore/tcell/v3/vt"},
+}
+
 // hostPrefixes are the applications tuikit was extracted from and the
 // libraries they bring. A test of tuikit importing one would compile only
 // inside that application's module.
@@ -76,7 +84,8 @@ func TestTuikitImportsOnlyItsDeclaredDependencies(t *testing.T) {
 
 	for _, p := range pkgs {
 		for _, imp := range p.imports {
-			if isStd(imp) || inTuikit(imp) || slices.Contains(allowedExternal, imp) {
+			if isStd(imp) || inTuikit(imp) || slices.Contains(allowedExternal, imp) ||
+				slices.Contains(testKitExternal[strings.TrimPrefix(p.path, root+"/")], imp) {
 				continue
 			}
 			t.Errorf("%s imports %s; tuikit may import only the standard library, tuikit and %s",

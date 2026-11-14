@@ -3,6 +3,8 @@ package controls
 import (
 	"testing"
 
+	"github.com/radix29/tuikit/tuikittest"
+
 	"github.com/radix29/tuikit/theme"
 )
 
@@ -19,7 +21,7 @@ func TestDataGridStatusStyleFollowsThePalette(t *testing.T) {
 	g.SetData([]string{"n"}, [][]string{{"1"}})
 	g.SetStatus("1 row")
 	g.SetStatusStyle(theme.StyleGridStatus)
-	s := mockScreen(t, 40, 6)
+	s := tuikittest.NewMockScreen(t, 40, 6)
 
 	for _, p := range []theme.Palette{theme.Default, theme.MC} {
 		theme.SetPalette(p)

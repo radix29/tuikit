@@ -389,7 +389,7 @@ func TestHScrollbarAgreesWithTheDrawnVerticalBar(t *testing.T) {
 		}
 		g.SetData(cols, rows)
 		g.SetStatus("")
-		s := mockScreen(t, 40, tc.h)
+		s := tuikittest.NewMockScreen(t, 40, tc.h)
 		g.Draw(s)
 
 		drawn := false

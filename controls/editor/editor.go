@@ -372,9 +372,10 @@ func (e *Editor) SetText(text string) {
 }
 
 // splitText turns text into document lines the way every whole-text entry point
-// stores them: tabs expanded, CRLF folded, one []rune per line.
+// stores them: tabs expanded, line endings folded (normalizeEOL), one []rune
+// per line.
 func (e *Editor) splitText(text string) [][]rune {
-	parts := strings.Split(strings.ReplaceAll(e.expandTabs(text), "\r\n", "\n"), "\n")
+	parts := strings.Split(normalizeEOL(e.expandTabs(text)), "\n")
 	lines := make([][]rune, len(parts))
 	for i, p := range parts {
 		lines[i] = []rune(p)

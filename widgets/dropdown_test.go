@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v3"
-	"github.com/gdamore/tcell/v3/vt"
 	"github.com/radix29/tuikit/core"
 	"github.com/radix29/tuikit/theme"
 	"github.com/radix29/tuikit/tuikittest"
@@ -67,21 +66,6 @@ func TestDropDownOpenBoundaryArrowsConsumed(t *testing.T) {
 	}
 }
 
-// dropTestScreen is a w×h mock terminal, for the tests that need DropDown to
-// learn the screen size from Draw.
-func dropTestScreen(t *testing.T, w, h int) tcell.Screen {
-	t.Helper()
-	s, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: vt.Col(w), Y: vt.Row(h)}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(s.Fini)
-	return s
-}
-
 func manyItems(n int) []string {
 	items := make([]string, n)
 	for i := range items {
@@ -118,7 +102,7 @@ func openOn(t *testing.T, s tcell.Screen, d *DropDown) {
 // the list stops at the last screen row, and the selection stays visible as
 // Down walks past it.
 func TestDropDownListIsClampedToTheScreen(t *testing.T) {
-	s := dropTestScreen(t, 40, 12)
+	s := tuikittest.NewMockScreen(t, 40, 12)
 	d := newTestDropDown(manyItems(200))
 	d.SetBounds(0, 2) // 9 rows below, 2 above: opens below
 	openOn(t, s, d)
@@ -146,7 +130,7 @@ func TestDropDownListIsClampedToTheScreen(t *testing.T) {
 // TestDropDownOpensAboveWhenThereIsMoreRoom: a control near the bottom of the
 // screen opens its list upward, and a click hits the item drawn there.
 func TestDropDownOpensAboveWhenThereIsMoreRoom(t *testing.T) {
-	s := dropTestScreen(t, 40, 12)
+	s := tuikittest.NewMockScreen(t, 40, 12)
 	d := newTestDropDown(manyItems(30))
 	d.SetBounds(0, 9) // 2 rows below, 9 above
 	openOn(t, s, d)
@@ -167,7 +151,7 @@ func TestDropDownOpensAboveWhenThereIsMoreRoom(t *testing.T) {
 // TestDropDownShortListStillOpensBelow: a list that fits below keeps its old
 // place and has no scrollbar.
 func TestDropDownShortListStillOpensBelow(t *testing.T) {
-	s := dropTestScreen(t, 40, 12)
+	s := tuikittest.NewMockScreen(t, 40, 12)
 	d := newTestDropDown([]string{"a", "b", "c"})
 	d.SetBounds(0, 5)
 	openOn(t, s, d)
@@ -182,7 +166,7 @@ func TestDropDownShortListStillOpensBelow(t *testing.T) {
 // TestDropDownOpenListPagingKeys: PgUp/PgDn move a page, Home/End the ends,
 // and a letter jumps to the next item starting with it, wrapping round.
 func TestDropDownOpenListPagingKeys(t *testing.T) {
-	s := dropTestScreen(t, 40, 12)
+	s := tuikittest.NewMockScreen(t, 40, 12)
 	d := newTestDropDown(append(manyItems(50), "master", "model", "msdb"))
 	d.SetBounds(0, 2) // 9 rows: a page is 8
 	openOn(t, s, d)
@@ -225,7 +209,7 @@ func TestDropDownOpenListPagingKeys(t *testing.T) {
 // TestDropDownWheelScrollsWithoutMovingTheSelection, and a click then picks
 // the item drawn under the pointer after the scroll.
 func TestDropDownWheelScrollsWithoutMovingTheSelection(t *testing.T) {
-	s := dropTestScreen(t, 40, 12)
+	s := tuikittest.NewMockScreen(t, 40, 12)
 	d := newTestDropDown(manyItems(200))
 	d.SetBounds(0, 2)
 	openOn(t, s, d)
@@ -248,7 +232,7 @@ func TestDropDownWheelScrollsWithoutMovingTheSelection(t *testing.T) {
 // column scrolls, and dragging back across items under the held button picks
 // none of them.
 func TestDropDownScrollbarDragScrollsAndPicksNothing(t *testing.T) {
-	s := dropTestScreen(t, 40, 12)
+	s := tuikittest.NewMockScreen(t, 40, 12)
 	d := newTestDropDown(manyItems(200))
 	d.SetBounds(0, 2)
 	openOn(t, s, d)
@@ -272,7 +256,7 @@ func TestDropDownScrollbarDragScrollsAndPicksNothing(t *testing.T) {
 // contract: greyed, no key or click opens or changes it, disabling closes an
 // open list, and SetSelected still works.
 func TestDisabledDropDownRefusesInputAndDrawsGreyed(t *testing.T) {
-	s := dropTestScreen(t, 40, 12)
+	s := tuikittest.NewMockScreen(t, 40, 12)
 	d := newTestDropDown([]string{"alpha", "beta", "gamma"})
 	d.SetBounds(0, 2)
 	openOn(t, s, d)
@@ -312,7 +296,7 @@ func TestDisabledDropDownRefusesInputAndDrawsGreyed(t *testing.T) {
 // (`…tui_dev.bakv]`). It now ends in "…" with one blank column before the "v";
 // a value that fits is drawn whole.
 func TestDropDownLongValueEndsInAnEllipsisClearOfTheArrow(t *testing.T) {
-	s := dropTestScreen(t, 40, 5)
+	s := tuikittest.NewMockScreen(t, 40, 5)
 	d := NewDropDown("", []string{"backup_set_2026_10_15_full.bak", "short"}, 12)
 	d.SetBounds(0, 1)
 	d.Draw(s)

@@ -52,15 +52,16 @@ func TestReplaceTextClampsCursorAndDropsSelection(t *testing.T) {
 	}
 }
 
-// TestReplaceTextNormalisesLikeSetText: CRLF folds and tabs expand, so the
+// TestReplaceTextNormalisesLikeSetText: CRLF and lone CR fold and tabs expand, so the
 // document a replace leaves is the one SetText would have built.
 func TestReplaceTextNormalisesLikeSetText(t *testing.T) {
-	src := "a\r\n\tb"
-	want := newTestEditor(src).Text()
-	e := newTestEditor("x")
-	e.ReplaceText(src)
-	if got := e.Text(); got != want {
-		t.Errorf("Text() = %q, want %q (as SetText)", got, want)
+	for _, src := range []string{"a\r\n\tb", "a\r\tb\rc", "a\r\r\nb"} {
+		want := newTestEditor(src).Text()
+		e := newTestEditor("x")
+		e.ReplaceText(src)
+		if got := e.Text(); got != want {
+			t.Errorf("%q: Text() = %q, want %q (as SetText)", src, got, want)
+		}
 	}
 }
 

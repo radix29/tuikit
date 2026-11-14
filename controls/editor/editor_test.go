@@ -1670,3 +1670,23 @@ func TestUndoAPIScrollsCaretIntoView(t *testing.T) {
 	e.HandleKey(tuikittest.Key(tcell.KeyEnd, tcell.ModCtrl))
 	e.Redo() // nothing to redo: no step, no scroll needed — must not panic
 }
+
+// TestLoneCRIsALineBreak: a classic Mac (CR-only) file loads as lines, as SQL
+// Server and the host's lexer read it. Before normalizeEOL only "\r\n" folded,
+// and "select 1 --a\rselect 2\rGO" loaded as one line, so the host's batch
+// splitter never saw the GO. Paste folds the same way.
+func TestLoneCRIsALineBreak(t *testing.T) {
+	e := newTestEditor("select 1 --a\rselect 2\rGO\rselect 3")
+	if got, want := e.doc.Len(), 4; got != want {
+		t.Fatalf("SetText: %d lines, want %d", got, want)
+	}
+	if got, want := e.Text(), "select 1 --a\nselect 2\nGO\nselect 3"; got != want {
+		t.Errorf("SetText: Text() = %q, want %q", got, want)
+	}
+
+	e = newTestEditor("")
+	e.Paste("a\rb\r\nc")
+	if got, want := e.Text(), "a\nb\nc"; got != want {
+		t.Errorf("Paste: Text() = %q, want %q", got, want)
+	}
+}

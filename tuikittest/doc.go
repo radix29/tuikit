@@ -6,5 +6,6 @@
 // imports core), so they draw into a core.Buffer directly.
 //
 //   - screen.go — Screen, a core.Buffer with search and snapshot helpers
+//   - mockscreen.go — NewMockScreen, tcell's own screen on a mock terminal
 //   - events.go — Key/Rune/Mouse/Press/Release event builders
 package tuikittest

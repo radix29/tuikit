@@ -1,5 +1,7 @@
 package editor
 
+import "strings"
+
 // ---------------------------------------------------------------------------
 // Helpers shared across more than one file in this package
 // ---------------------------------------------------------------------------
@@ -86,4 +88,18 @@ func (c *prefixStates[S]) replay(doc *Document, from int, zero S, step func(line
 		in = step(doc.Line(i), in)
 	}
 	c.doc, c.version, c.valid = doc, doc.Version(), true
+}
+
+// normalizeEOL folds every line ending to "\n": "\r\n" first, then any lone
+// "\r" (a classic Mac file). Every entry point that splits text into lines —
+// SetText/ReplaceText (splitText), Paste, blockPaste and LineBuffer.AppendText —
+// goes through it, so they cannot drift apart again. Before it they each folded
+// only "\r\n": a CR-only file loaded as one line with embedded CRs, which the
+// host's batch splitter and formatter (which treat a lone CR as ending a "--"
+// comment, as SQL Server does) then disagreed with.
+func normalizeEOL(s string) string {
+	if strings.IndexByte(s, '\r') < 0 {
+		return s
+	}
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
 }

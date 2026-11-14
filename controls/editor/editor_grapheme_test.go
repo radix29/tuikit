@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v3"
-	"github.com/gdamore/tcell/v3/vt"
 	"github.com/radix29/tuikit/tuikittest"
 )
 
@@ -17,19 +16,6 @@ import (
 // cluster tcell draws two wide, which the editor had counted as one column,
 // had its second cell overwritten by the next character.
 
-func mockScreen(tb testing.TB, w, h int) tcell.Screen {
-	tb.Helper()
-	s, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: vt.Col(w), Y: vt.Row(h)}))
-	if err != nil {
-		tb.Fatal(err)
-	}
-	if err := s.Init(); err != nil {
-		tb.Fatal(err)
-	}
-	tb.Cleanup(s.Fini)
-	return s
-}
-
 // graphemeCases are clusters whose width is not the sum of their runes'.
 var graphemeCases = []string{
 	"❤️",    // heart + VS16: runes sum to 1, drawn 2
@@ -41,7 +27,7 @@ var graphemeCases = []string{
 func TestEditorDrawsAClusterAtTheWidthTcellGivesIt(t *testing.T) {
 	for _, g := range graphemeCases {
 		e := widthEditor("x"+g+"y", 20, 3)
-		s := mockScreen(t, 20, 3)
+		s := tuikittest.NewMockScreen(t, 20, 3)
 		e.Draw(s)
 		if str, _, w := s.Get(1, 0); str != g || w != 2 {
 			t.Errorf("%q: cell 1 = %q (width %d), want the whole cluster, 2 wide", g, str, w)
