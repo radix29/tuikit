@@ -308,9 +308,11 @@ func (g *DataGrid) SetBounds(x, y, w, h int) {
 func (g *DataGrid) Bounds() core.Rect { return g.rect }
 
 // dataRows is how many data rows the viewport shows: the rect less the header,
-// its separator and the status row. It is negative for a rect under three rows,
-// so callers that use it as a count or a bound check it.
-func (g *DataGrid) dataRows() int { return g.rect.H - 3 }
+// its separator and the status row, and 0 for a rect under three rows. It was
+// once negative there, and PgDn on a one-row grid paged by -2: selRow went to
+// -2, the next ensureVisible on a grown grid copied it into scrollRow, and Draw
+// reached rows.Row(-1). Callers still treat 0 as "no rows visible".
+func (g *DataGrid) dataRows() int { return max(0, g.rect.H-3) }
 
 // showsVScrollbar reports whether Draw paints the vertical scrollbar, which
 // overdraws the rightmost column: hScrollbar must agree, or a scroll that fits
@@ -460,8 +462,10 @@ func (g *DataGrid) SetScroll(row, col int) {
 	// wheel uses, not the last row: clamping to rows.Len()-1 would let a redraw that
 	// shrank the list leave a two-row grid scrolled one row down, blank line above
 	// its only visible row. Columns keep scrollColBy's bound: varying widths give no
-	// "last column that fits".
-	g.scrollRow = core.Clamp(row, 0, max(0, g.rows.Len()-g.dataRows()))
+	// "last column that fits". The viewport counts as at least one row: on a grid
+	// too short for a data row the bound was rows.Len(), past the last row, and
+	// the grid drew blank once it grew until a key moved the selection.
+	g.scrollRow = core.Clamp(row, 0, max(0, g.rows.Len()-max(1, g.dataRows())))
 	g.scrollCol = core.Clamp(col, 0, max(0, len(g.columns)-1))
 }
 

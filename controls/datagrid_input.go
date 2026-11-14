@@ -127,11 +127,13 @@ func (g *DataGrid) applyKey(ev *tcell.EventKey) (bound, fired bool) {
 			g.selRow++
 			g.ensureVisible(dataH)
 		}
+	// A page is at least one row, so the keys still move on a grid too short to
+	// show any data row.
 	case tcell.KeyPgUp:
-		g.selRow = max(0, g.selRow-dataH)
+		g.selRow = max(0, g.selRow-max(1, dataH))
 		g.ensureVisible(dataH)
 	case tcell.KeyPgDn:
-		g.selRow = min(g.rows.Len()-1, g.selRow+dataH)
+		g.selRow = min(g.rows.Len()-1, g.selRow+max(1, dataH))
 		g.ensureVisible(dataH)
 	case tcell.KeyHome:
 		g.selRow, g.scrollRow = 0, 0
@@ -286,7 +288,9 @@ func (g *DataGrid) HandleMouse(ev *tcell.EventMouse) bool {
 		if ev.Modifiers()&tcell.ModShift != 0 {
 			g.scrollColBy(horizontalWheelCols)
 		} else {
-			g.scrollRow = max(g.scrollRow, min(g.rows.Len()-dataH, g.scrollRow+core.WheelRows))
+			// SetScroll's bound: a viewport of at least one row, or a grid too short
+			// for a data row scrolls past its last row.
+			g.scrollRow = max(g.scrollRow, min(g.rows.Len()-max(1, dataH), g.scrollRow+core.WheelRows))
 		}
 	case tcell.WheelLeft:
 		g.scrollColBy(-horizontalWheelCols)
@@ -654,7 +658,7 @@ func (g *DataGrid) colAt(x int) (col int, ok bool) {
 // ensureVisible scrolls vertically so selRow is on screen, given the data area's
 // height (rect.H less the header and status rows).
 //
-// A grid not yet laid out has rect.H == 0, so dataH is negative and the second
+// A grid not yet laid out has rect.H == 0, so dataH is 0 and the second
 // test below is true for every row: the scroll would jump past the whole list and
 // the next Draw paints the header and "N rows" over blank lines. Callers reach a
 // grid before its first SetBounds (SetSelectedCell via SetDataPreservingView), so

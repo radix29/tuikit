@@ -137,6 +137,7 @@ func (f *InputField) SelectAll() {
 	f.selecting = true
 	f.selAnchor = 0
 	f.cursor = len(f.value)
+	f.adjustScroll()
 }
 
 // selectionBounds returns the selection endpoints ordered start <= end.
@@ -185,6 +186,9 @@ func (f *InputField) Cut() string {
 	}
 	text := f.SelectedText()
 	f.deleteSelection()
+	// deleteSelection leaves the scroll alone (HandleKey adjusts once at its
+	// end): cutting a tail the view sat on drew the field blank, caret off screen.
+	f.adjustScroll()
 	f.changed()
 	return text
 }

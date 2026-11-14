@@ -2,6 +2,7 @@ package charts
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -97,10 +98,42 @@ func TestFormatValue(t *testing.T) {
 		{v: 4e9, want: "4.0G"},
 		{v: -7500, want: "-7.5K"},
 		{v: math.NaN(), want: "n/a"},
+		// Values that round up across a band boundary take the next band.
+		{v: 0.996, want: "1.0"},
+		{v: 9.96, want: "10"},
+		{v: 999.6, want: "1.0K"},
+		{v: 99960, want: "100K"},
+		{v: 999960, want: "1.0M"},
+		{v: 99.96e6, want: "100M"},
+		{v: 999.96e6, want: "1.0G"},
+		{v: -0.996, want: "-1.0"},
+		{v: -9.96, want: "-10"},
+		{v: -999.6, want: "-1.0K"},
+		{v: -99960, want: "-100K"},
+		{v: -999960, want: "-1.0M"},
+		{v: -99.96e6, want: "-100M"},
+		{v: -999.96e6, want: "-1.0G"},
 	}
 	for _, c := range cases {
 		if got := FormatValue(c.v); got != c.want {
 			t.Errorf("FormatValue(%v) = %q, want %q", c.v, got, c.want)
+		}
+	}
+}
+
+// TestFormatValueStaysCompactAcrossBoundaries sweeps each band boundary from
+// just below to just above: no label may grow past five cells or read as
+// "1000…", the shapes a band chosen before rounding produced.
+func TestFormatValueStaysCompactAcrossBoundaries(t *testing.T) {
+	for _, bound := range []float64{1, 10, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11} {
+		for step := -200; step <= 200; step++ {
+			v := bound * (1 + float64(step)*0.00005)
+			for _, x := range []float64{v, -v} {
+				got := strings.TrimPrefix(FormatValue(x), "-")
+				if len(got) > 5 || strings.HasPrefix(got, "1000") {
+					t.Errorf("FormatValue(%v) = %q", x, FormatValue(x))
+				}
+			}
 		}
 	}
 }

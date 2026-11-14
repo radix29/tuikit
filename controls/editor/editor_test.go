@@ -1595,3 +1595,78 @@ func TestEditorShiftRightAfterClickExtendsFromClick(t *testing.T) {
 		t.Fatalf("click then Shift+Right: SelectedText() = %q, want %q", got, "f")
 	}
 }
+
+// An undo or redo that removes rows must not leave a selection anchored on one of
+// them: the Edit menu's Undo()/Redo() skip the key path's drop, and the next read
+// of the selection indexed past the document.
+func TestUndoDropsSelectionItCanNoLongerHold(t *testing.T) {
+	readSelection := func(t *testing.T, e *Editor) {
+		t.Helper()
+		if e.HasSelection() {
+			t.Fatalf("HasSelection() = true after the step")
+		}
+		_ = e.SelectedText()
+		_ = e.Cut()
+		e.HandleKey(tuikittest.Rune('x'))
+	}
+	setup := func(text string) *Editor {
+		e := newTestEditor(text)
+		e.SetBounds(0, 0, 40, 10)
+		e.Focus(true)
+		return e
+	}
+
+	t.Run("undo", func(t *testing.T) {
+		e := setup("abc")
+		e.DuplicateLines()
+		e.HandleKey(tuikittest.Key(tcell.KeyLeft, tcell.ModShift))
+		e.Undo()
+		readSelection(t, e)
+	})
+	t.Run("redo", func(t *testing.T) {
+		e := setup("abc\ndef")
+		e.HandleKey(tuikittest.Key(tcell.KeyDown))
+		e.DeleteLines() // 1 row
+		e.Undo()        // 2 rows
+		e.HandleKey(tuikittest.Key(tcell.KeyEnd, tcell.ModCtrl))
+		e.HandleKey(tuikittest.Key(tcell.KeyLeft, tcell.ModShift))
+		if !e.HasSelection() || e.cursorRow != 1 {
+			t.Fatalf("setup: selection %v on row %d, want one on row 1", e.HasSelection(), e.cursorRow)
+		}
+		e.Redo() // 1 row again
+		readSelection(t, e)
+	})
+	t.Run("block", func(t *testing.T) {
+		e := setup("abc")
+		e.DuplicateLines()
+		e.HandleKey(tuikittest.Key(tcell.KeyLeft, tcell.ModShift|tcell.ModAlt))
+		if !e.selBlock {
+			t.Fatalf("setup: Alt+Shift+Left made no block selection")
+		}
+		e.Undo()
+		if e.selBlock {
+			t.Fatalf("selBlock still set after Undo")
+		}
+		readSelection(t, e)
+	})
+}
+
+// Undo() from the Edit menu must scroll the caret back into view, as Ctrl+Z does,
+// when the step it reverses lies far from the viewport.
+func TestUndoAPIScrollsCaretIntoView(t *testing.T) {
+	e := newTestEditor(strings.Repeat("line\n", 60))
+	e.SetBounds(0, 0, 40, 5)
+	e.Focus(true)
+	e.HandleKey(tuikittest.Rune('x')) // edit on row 0
+	e.HandleKey(tuikittest.Key(tcell.KeyEnd, tcell.ModCtrl))
+	if row, _ := e.ScrollPos(); row == 0 {
+		t.Fatalf("setup: Ctrl+End did not scroll")
+	}
+	e.Undo()
+	if row, _ := e.ScrollPos(); e.cursorRow != 0 || row != 0 {
+		t.Fatalf("after Undo: cursor row %d, scroll row %d; want both 0", e.cursorRow, row)
+	}
+	e.Redo()
+	e.HandleKey(tuikittest.Key(tcell.KeyEnd, tcell.ModCtrl))
+	e.Redo() // nothing to redo: no step, no scroll needed — must not panic
+}

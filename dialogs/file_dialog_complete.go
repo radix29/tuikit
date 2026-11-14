@@ -1,6 +1,7 @@
 package dialogs
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -89,15 +90,23 @@ func commonPrefix(strs []string) string {
 
 // formatFileSize renders n bytes as a short human-readable size (e.g.
 // "1.8 KB"), matching the mockup's column style.
+//
+// The units run to EB because an int64 tops out just below 8 EiB, and a file
+// that large is real: a sparse file takes no disk space, so `truncate -s 2P`
+// makes one in an instant. With "KMGT" alone, 1 PiB indexed past the end and
+// panicked inside Draw. The unit is chosen from the rounded value, so 1 MiB − 1
+// reads "1.0 MB", not "1024.0 KB". A negative size (a FileSystem reporting
+// garbage) is left as it is and prints e.g. "-1 B".
 func formatFileSize(n int64) string {
 	const unit = 1024
+	const units = "KMGTPE"
 	if n < unit {
 		return strconv.FormatInt(n, 10) + " B"
 	}
-	div, exp := int64(unit), 0
-	for x := n / unit; x >= unit; x /= unit {
-		div *= unit
+	v, exp := float64(n)/unit, 0
+	for math.Round(v*10)/10 >= unit && exp < len(units)-1 {
+		v /= unit
 		exp++
 	}
-	return strconv.FormatFloat(float64(n)/float64(div), 'f', 1, 64) + " " + string("KMGT"[exp]) + "B"
+	return strconv.FormatFloat(v, 'f', 1, 64) + " " + units[exp:exp+1] + "B"
 }
