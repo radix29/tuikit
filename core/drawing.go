@@ -410,31 +410,30 @@ func DrawScrollbarH(s tcell.Screen, x, y, w, total, visible, offset int, style, 
 // fresh press with OnScrollbar and, on that press and every routed repeat, sets
 // the offset from ScrollOffsetForDrag.
 func HandleScrollbarDrag(ev *tcell.EventMouse, x, y, h, total int, dragging *bool, scroll *int) bool {
-	if ev.Buttons() != tcell.Button1 {
-		return false
-	}
 	mx, my := ev.Position()
-	if total <= h || h <= 0 || (!*dragging && !OnScrollbar(mx, my, x, y, h, total)) {
-		return false
-	}
-	*dragging = true
-	*scroll = ScrollOffsetForDrag(my-y, h, total, h)
-	return true
+	return handleScrollbarDragAxis(ev, h, total, OnScrollbar(mx, my, x, y, h, total), my-y, dragging, scroll)
 }
 
 // HandleScrollbarDragH is HandleScrollbarDrag's horizontal counterpart, for a
 // bar drawn by DrawScrollbarH at row y spanning [x, x+w). The same
 // h/visible-conflation caveat applies to w.
 func HandleScrollbarDragH(ev *tcell.EventMouse, x, y, w, total int, dragging *bool, scroll *int) bool {
+	mx, my := ev.Position()
+	return handleScrollbarDragAxis(ev, w, total, OnScrollbarH(mx, my, x, y, w, total), mx-x, dragging, scroll)
+}
+
+// handleScrollbarDragAxis is the axis-free core of HandleScrollbarDrag and
+// HandleScrollbarDragH: length is the bar's track (and visible count), onBar
+// whether the mouse is on the bar, along the mouse's offset into the track.
+func handleScrollbarDragAxis(ev *tcell.EventMouse, length, total int, onBar bool, along int, dragging *bool, scroll *int) bool {
 	if ev.Buttons() != tcell.Button1 {
 		return false
 	}
-	mx, my := ev.Position()
-	if total <= w || w <= 0 || (!*dragging && !OnScrollbarH(mx, my, x, y, w, total)) {
+	if total <= length || length <= 0 || (!*dragging && !onBar) {
 		return false
 	}
 	*dragging = true
-	*scroll = ScrollOffsetForDrag(mx-x, w, total, w)
+	*scroll = ScrollOffsetForDrag(along, length, total, length)
 	return true
 }
 

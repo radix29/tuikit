@@ -21,7 +21,7 @@ func TestInputFieldDrawsClustersWhole(t *testing.T) {
 		{"👨‍👩‍👧", 2},
 		{"é", 1},
 	} {
-		s := dropTestScreen(t, 40, 3)
+		s := tuikittest.NewMockScreen(t, 40, 3)
 		f := newTestInputField("x" + c.g + "y")
 		f.SetBounds(0, 0)
 		f.Draw(s)

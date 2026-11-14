@@ -93,8 +93,9 @@ tuikit/
 │               history.go, stacked_history.go, barchart.go, stacked_bar.go,
 │               vbar.go, kpi.go, panel_title.go (a chart panel's heading row)
 ├── tuikittest/ Test kit, imported by _test files only — screen.go (Screen: a
-│               core.Buffer with Find/RowOf/Snapshot/SetSize), events.go
-│               (Key/Rune/Mouse/Press/Release builders)
+│               core.Buffer with Find/RowOf/Snapshot/SetSize),
+│               mockscreen.go (NewMockScreen: tcell's own screen on a mock
+│               terminal), events.go (Key/Rune/Mouse/Press/Release builders)
 └── propsheet/  PropertySheet — multi-page editable properties dialog framework
               — doc.go, common.go, rows.go (Section/Note/Hint/Static),
                 textrow.go, choicerows.go (Check/Select/Radio), buttonsrow.go,

@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v3"
-	"github.com/gdamore/tcell/v3/vt"
 	"github.com/radix29/tuikit/theme"
+	"github.com/radix29/tuikit/tuikittest"
 )
 
 // nullRows is a source whose cells all read "NULL" but only some are one.
@@ -17,19 +17,6 @@ type nullRows struct {
 func (s nullRows) Len() int                 { return len(s.rows) }
 func (s nullRows) Row(i int) []string       { return s.rows[i] }
 func (s nullRows) IsNull(row, col int) bool { return s.nulls[[2]int{row, col}] }
-
-func nullTestScreen(t *testing.T) tcell.Screen {
-	t.Helper()
-	s, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: 40, Y: 10}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Init(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(s.Fini)
-	return s
-}
 
 // cellDimmed reports whether column col's text in data row row (no scroll, no
 // gutter) is drawn in the dim colour.
@@ -52,7 +39,7 @@ func TestGridDimsOnlyCellsTheSourceMarksNull(t *testing.T) {
 		nulls: map[[2]int]bool{{0, 0}: true, {1, 1}: true},
 	}
 	for _, cursor := range []bool{false, true} {
-		s := nullTestScreen(t)
+		s := tuikittest.NewMockScreen(t, 40, 10)
 		g := newTestDataGrid()
 		g.SetSource([]string{"a", "b"}, src)
 		g.SetCellCursor(cursor)
@@ -70,7 +57,7 @@ func TestGridDimsOnlyCellsTheSourceMarksNull(t *testing.T) {
 		}
 	}
 
-	s := nullTestScreen(t)
+	s := tuikittest.NewMockScreen(t, 40, 10)
 	g := newTestDataGrid()
 	g.SetData([]string{"a"}, [][]string{{"NULL"}})
 	g.Draw(s)

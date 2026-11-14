@@ -687,7 +687,7 @@ func TestTreeViewDoubleClickActivationDoesNotToggle(t *testing.T) {
 // tree given none draws a plain border.
 func TestTreeViewDrawsItsTitle(t *testing.T) {
 	topRow := func(tv *TreeView) string {
-		s := nullTestScreen(t)
+		s := tuikittest.NewMockScreen(t, 40, 10)
 		tv.Draw(s)
 		var b strings.Builder
 		for x := range 40 {
@@ -710,7 +710,7 @@ func TestTreeViewDrawsItsTitle(t *testing.T) {
 // cell in it.
 func treeTopRow(t *testing.T, tv *TreeView) (string, []tcell.Style) {
 	t.Helper()
-	s := nullTestScreen(t)
+	s := tuikittest.NewMockScreen(t, 40, 10)
 	tv.Draw(s)
 	var b strings.Builder
 	var styles []tcell.Style
@@ -847,7 +847,7 @@ func TestTreeViewTitleButtonTipShowsOnHover(t *testing.T) {
 		t.Fatal("title button hidden")
 	}
 	row1 := func() string {
-		s := nullTestScreen(t)
+		s := tuikittest.NewMockScreen(t, 40, 10)
 		tv.DrawOverlay(s)
 		var b strings.Builder
 		for x := range tv.rect.W {

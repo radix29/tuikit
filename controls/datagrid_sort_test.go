@@ -6,6 +6,7 @@ import (
 
 	"github.com/gdamore/tcell/v3"
 	"github.com/radix29/tuikit/core"
+	"github.com/radix29/tuikit/tuikittest"
 )
 
 // headerText reads the grid's header row off the screen.
@@ -73,7 +74,7 @@ func TestDataGridHeaderClickSkipsSeparatorAndCellDrags(t *testing.T) {
 // fit, is cleared by SetData (a new column set) and kept by
 // SetDataPreservingView.
 func TestDataGridSortIndicator(t *testing.T) {
-	s := nullTestScreen(t)
+	s := tuikittest.NewMockScreen(t, 40, 10)
 	g := newTestDataGrid()
 	g.SetData([]string{"Name", "Row Count"}, [][]string{{"a", "1"}})
 	before := g.ColumnWidth(1)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gdamore/tcell/v3"
 	"github.com/radix29/tuikit/theme"
+	"github.com/radix29/tuikit/tuikittest"
 )
 
 // Like controls' frame benchmarks (see frame_bench_test.go there for why),
@@ -13,7 +14,7 @@ import (
 
 const frameW, frameH = 200, 50
 
-func frameScreen(b *testing.B) tcell.Screen { return mockScreen(b, frameW, frameH) }
+func frameScreen(b *testing.B) tcell.Screen { return tuikittest.NewMockScreen(b, frameW, frameH) }
 
 // BenchmarkFrameEditor is a full-screen query editor over a highlighted
 // script, scrolled into the middle so the gutter and scrollbar draw too.

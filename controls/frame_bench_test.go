@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/gdamore/tcell/v3"
-	"github.com/gdamore/tcell/v3/vt"
+	"github.com/radix29/tuikit/tuikittest"
 )
 
 // The frame benchmarks draw into a real tcell screen on a mock terminal, not
@@ -17,22 +17,7 @@ import (
 
 const frameW, frameH = 200, 50
 
-func frameScreen(b *testing.B) tcell.Screen { return mockScreen(b, frameW, frameH) }
-
-// mockScreen is tcell's own screen on a w x h mock terminal, for a test that
-// must measure as tcell does rather than as a tuikittest.Screen does.
-func mockScreen(tb testing.TB, w, h int) tcell.Screen {
-	tb.Helper()
-	s, err := tcell.NewTerminfoScreenFromTty(vt.NewMockTerm(vt.MockOptSize{X: vt.Col(w), Y: vt.Row(h)}))
-	if err != nil {
-		tb.Fatal(err)
-	}
-	if err := s.Init(); err != nil {
-		tb.Fatal(err)
-	}
-	tb.Cleanup(s.Fini)
-	return s
-}
+func frameScreen(b *testing.B) tcell.Screen { return tuikittest.NewMockScreen(b, frameW, frameH) }
 
 // BenchmarkFrameDataGrid is a full-screen results grid: header, separator,
 // 46 rows of six columns, the status bar and both scrollbars.
