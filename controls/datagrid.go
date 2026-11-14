@@ -378,14 +378,31 @@ func (g *DataGrid) SetDataPreservingView(columns []string, rows [][]string) {
 // view whose rows grow in place and whose column set changes as new ones
 // appear.
 //
+// The selection collapses onto the restored cursor: a Shift-extended block
+// and Ctrl+click marks are dropped. A host that does not know whether its
+// rebuild kept the rows in place (a filter, a re-run query, a resume after
+// eviction) then cannot copy rows the user never selected. A host that knows
+// the rows are identical uses SetSourceKeepingSelection.
+func (g *DataGrid) SetSourcePreservingView(columns []string, rows RowSource) {
+	g.setSourcePreserving(columns, rows, false)
+}
+
+// SetSourceKeepingSelection is SetSourcePreservingView for a rebuild that
+// leaves the rows where they were — only the column set changed, or rows were
+// appended after the last one.
+//
 // "The same rows" is the contract, so the selection survives too: a
 // Shift-extended block keeps its anchor (both corners clamped into the new
 // shape), and Ctrl+click marks are kept while every marked row still exists.
 // A live view rebuilt because an event brought a new column wiped a
-// multi-row selection the user was about to copy. A host whose rebuild
-// reorders the rows (a sort) re-selects by identity with SetSelectedCell,
-// which collapses what was kept here.
-func (g *DataGrid) SetSourcePreservingView(columns []string, rows RowSource) {
+// multi-row selection the user was about to copy. Called on rows that did
+// move, the kept selection covers other rows and a copy takes rows the user
+// never picked.
+func (g *DataGrid) SetSourceKeepingSelection(columns []string, rows RowSource) {
+	g.setSourcePreserving(columns, rows, true)
+}
+
+func (g *DataGrid) setSourcePreserving(columns []string, rows RowSource, keepSelection bool) {
 	selRow, selCol := g.SelectedCell()
 	block, anchorRow, anchorCol := g.blockSelecting, g.selAnchorRow, g.selAnchorCol
 	marking, markLo, markHi, markFlips := g.marking, g.markLo, g.markHi, g.markFlips
@@ -397,6 +414,9 @@ func (g *DataGrid) SetSourcePreservingView(columns []string, rows RowSource) {
 	g.restoreOverrideWidths(widths)
 	g.SetScroll(scrollRow, scrollCol)
 	g.SetSelectedCell(selRow, selCol)
+	if !keepSelection {
+		return
+	}
 	n := g.rows.Len()
 	if block && n > 0 {
 		g.selAnchorRow = core.Clamp(anchorRow, 0, n-1)

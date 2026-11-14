@@ -126,29 +126,50 @@ func TestDropLeadingRowsKeepsTheSameRowsSelected(t *testing.T) {
 	}
 }
 
-// SetSourcePreservingView is for the same rows, so a multi-row selection
+// SetSourceKeepingSelection is for the same rows, so a multi-row selection
 // survives it. A live view rebuilt for a new column wiped the selection the
 // user was about to copy.
-func TestSetSourcePreservingViewKeepsBlockSelection(t *testing.T) {
+func TestSetSourceKeepingSelectionKeepsBlockSelection(t *testing.T) {
 	g, rows := newLiveBlockGrid()
-	g.SetSourcePreservingView([]string{"ID", "New"}, liveRows{rows})
+	g.SetSourceKeepingSelection([]string{"ID", "New"}, liveRows{rows})
 	wantRowBounds(t, g, 10, 13, "same rows")
 
 	// Clamped into a shorter set.
 	short := idRows(12)
-	g.SetSourcePreservingView([]string{"ID"}, liveRows{&short})
+	g.SetSourceKeepingSelection([]string{"ID"}, liveRows{&short})
 	wantRowBounds(t, g, 10, 11, "shorter set")
 
 	// Marks are kept while every marked row still exists...
 	g, rows = newLiveBlockGrid()
 	g.markRow(15)
-	g.SetSourcePreservingView([]string{"ID"}, liveRows{rows})
+	g.SetSourceKeepingSelection([]string{"ID"}, liveRows{rows})
 	wantRows(t, g, []int{10, 11, 12, 13, 15}, "marks, same rows")
 
 	// ...and dropped once one does not.
 	short = idRows(14)
-	g.SetSourcePreservingView([]string{"ID"}, liveRows{&short})
+	g.SetSourceKeepingSelection([]string{"ID"}, liveRows{&short})
 	if g.marking {
 		t.Errorf("marks kept past the end: %v", g.SelectedRows())
 	}
+}
+
+// SetSourcePreservingView does not know the rows stayed put (a filter, a
+// re-run query), so it collapses a block and drops marks onto the restored
+// cursor: a kept selection by index covered rows the user never picked, and
+// Copy Rows copied them.
+func TestSetSourcePreservingViewCollapsesSelection(t *testing.T) {
+	g, rows := newLiveBlockGrid()
+	g.SetSourcePreservingView([]string{"ID"}, liveRows{rows})
+	wantRowBounds(t, g, 13, 13, "block")
+	if g.blockSelecting {
+		t.Error("blockSelecting still set after SetSourcePreservingView")
+	}
+
+	g, rows = newLiveBlockGrid()
+	g.markRow(15)
+	g.SetSourcePreservingView([]string{"ID"}, liveRows{rows})
+	if g.marking {
+		t.Errorf("marks kept: %v", g.SelectedRows())
+	}
+	wantRows(t, g, []int{13}, "marks")
 }

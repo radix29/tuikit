@@ -268,7 +268,9 @@ A hover hint (`Toolbar`, `TreeView`'s title button) is an `Overlay` whose
   recompute to `Draw`.
 - **Never `DataGrid.SetData` on a grid being navigated** — it drops cursor,
   scroll and dragged widths; inside the grid's own `OnSelectRow` it undoes the
-  move. Use `SetDataPreservingView`.
+  move. Use `SetDataPreservingView`, which collapses a multi-row selection
+  onto the cursor; `SetSourceKeepingSelection` keeps it, for a rebuild that
+  leaves every row where it was.
 - **A host acting on whole rows reads `DataGrid.SelectedRows()`**, never
   `SelectionBounds()`: bounds are a rectangle, so Ctrl+click rows 1 and 3
   covers row 2 too.
