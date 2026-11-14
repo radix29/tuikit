@@ -145,7 +145,7 @@ func (e *Editor) blockPasteSpan(text string) (lo, hi int) {
 // the buffer if the paste runs past it. This is what a block copy pasted back
 // expects (see Paste for how one is recognised). The caller pushes the undo step.
 func (e *Editor) blockPaste(text string) {
-	parts := strings.Split(strings.ReplaceAll(e.expandTabs(text), "\r\n", "\n"), "\n")
+	parts := strings.Split(normalizeEOL(e.expandTabs(text)), "\n")
 	col := e.cursorCol
 	switch {
 	case e.blockEditing():

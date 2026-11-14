@@ -35,10 +35,10 @@ func NewLineBuffer(tabWidth int) *LineBuffer {
 }
 
 // AppendText appends s, which may itself span lines: it is split on "\n"
-// (a "\r\n" counts as one) exactly as SetText splits, so a value with an
-// embedded newline lands as the same lines either way.
+// (a "\r\n" or a lone "\r" counts as one) exactly as SetText splits, so a
+// value with an embedded newline lands as the same lines either way.
 func (b *LineBuffer) AppendText(s string) {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = normalizeEOL(s)
 	for {
 		i := strings.IndexByte(s, '\n')
 		if i < 0 {

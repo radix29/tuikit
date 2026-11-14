@@ -3,6 +3,8 @@ package controls
 import (
 	"maps"
 	"slices"
+
+	"github.com/radix29/tuikit/core"
 )
 
 // SelectedRows returns the rows the selection covers, ascending: the rows
@@ -78,6 +80,48 @@ func (g *DataGrid) SelectedRowCount() int {
 // is.
 func (g *DataGrid) ClearMarkedRows() {
 	g.markFlips, g.marking = nil, false
+}
+
+// collapseSelection drops a Shift-extended block (re-anchoring on the cursor)
+// and any Ctrl+click marks: what a programmatic cursor move leaves behind.
+func (g *DataGrid) collapseSelection() {
+	g.blockSelecting = false
+	g.selAnchorRow, g.selAnchorCol = g.selRow, g.selCol
+	g.ClearMarkedRows()
+}
+
+// DropLeadingRows tells the grid its host removed the first k rows of the
+// source (already gone from it: a live view whose store evicted its oldest
+// rows). The cursor, the block anchor, the scroll position and every
+// Ctrl+click mark shift up by k, so the selection stays on the same rows and
+// the view does not jump. Marks that fell off are dropped; a cursor or anchor
+// that fell off clamps to row 0, so a selection whose rows were all removed
+// collapses there. It is the one call that moves a selection without changing
+// what it covers — SetSelectedCell collapses it. Does not fire OnSelectRow.
+func (g *DataGrid) DropLeadingRows(k int) {
+	if k <= 0 {
+		return
+	}
+	last := max(0, g.rows.Len()-1)
+	g.selRow = core.Clamp(g.selRow-k, 0, last)
+	g.selAnchorRow = core.Clamp(g.selAnchorRow-k, 0, last)
+	if g.blockSelecting {
+		g.blockSelecting = g.selRow != g.selAnchorRow || g.selCol != g.selAnchorCol
+	}
+	g.SetScroll(g.scrollRow-k, g.scrollCol)
+	if g.marking {
+		g.markLo, g.markHi = max(0, g.markLo-k), min(g.markHi-k, last)
+		if g.markHi < g.markLo {
+			g.markLo, g.markHi = 0, -1
+		}
+		flips := make(map[int]struct{}, len(g.markFlips))
+		for r := range g.markFlips {
+			if r -= k; r >= 0 && r <= last {
+				flips[r] = struct{}{}
+			}
+		}
+		g.markFlips = flips
+	}
 }
 
 // markRow adds the clicked row to the discontiguous selection, or removes it if

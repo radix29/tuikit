@@ -14,6 +14,8 @@ func TestLineBufferMatchesSetText(t *testing.T) {
 		"one line",
 		"a\nb\n",
 		"crlf\r\nline",
+		"cr\ronly\rline",
+		"mixed\r\n\r\rend\r",
 		"tab\there",
 		"wide 日本語\nnarrow",
 		"\n\n",

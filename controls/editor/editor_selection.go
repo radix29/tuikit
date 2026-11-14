@@ -263,7 +263,7 @@ func (e *Editor) Paste(text string) {
 	if !e.selBlock {
 		e.selecting = false
 	}
-	e.insertText(strings.Split(strings.ReplaceAll(e.expandTabs(text), "\r\n", "\n"), "\n"))
+	e.insertText(strings.Split(normalizeEOL(e.expandTabs(text)), "\n"))
 	e.clampCursor()
 	e.ensureCursorVisible()
 }

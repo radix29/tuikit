@@ -377,8 +377,18 @@ func (g *DataGrid) SetDataPreservingView(columns []string, rows [][]string) {
 // SetSourcePreservingView is SetDataPreservingView for a RowSource — a live
 // view whose rows grow in place and whose column set changes as new ones
 // appear.
+//
+// "The same rows" is the contract, so the selection survives too: a
+// Shift-extended block keeps its anchor (both corners clamped into the new
+// shape), and Ctrl+click marks are kept while every marked row still exists.
+// A live view rebuilt because an event brought a new column wiped a
+// multi-row selection the user was about to copy. A host whose rebuild
+// reorders the rows (a sort) re-selects by identity with SetSelectedCell,
+// which collapses what was kept here.
 func (g *DataGrid) SetSourcePreservingView(columns []string, rows RowSource) {
 	selRow, selCol := g.SelectedCell()
+	block, anchorRow, anchorCol := g.blockSelecting, g.selAnchorRow, g.selAnchorCol
+	marking, markLo, markHi, markFlips := g.marking, g.markLo, g.markHi, g.markFlips
 	scrollRow, scrollCol := g.scrollRow, g.scrollCol
 	widths := g.ColumnWidthOverrides()
 	sortCol, sortDesc := g.sortCol, g.sortDesc
@@ -387,6 +397,29 @@ func (g *DataGrid) SetSourcePreservingView(columns []string, rows RowSource) {
 	g.restoreOverrideWidths(widths)
 	g.SetScroll(scrollRow, scrollCol)
 	g.SetSelectedCell(selRow, selCol)
+	n := g.rows.Len()
+	if block && n > 0 {
+		g.selAnchorRow = core.Clamp(anchorRow, 0, n-1)
+		g.selAnchorCol = core.Clamp(anchorCol, 0, max(0, len(g.columns)-1))
+		g.blockSelecting = g.selRow != g.selAnchorRow || g.selCol != g.selAnchorCol
+	}
+	if marking && marksFit(markHi, markFlips, n) {
+		g.markLo, g.markHi, g.markFlips, g.marking = markLo, markHi, markFlips, true
+	}
+}
+
+// marksFit reports whether every row a Ctrl+click selection names (the base
+// run up to markHi and each flip) is below n, so the marks still name rows.
+func marksFit(markHi int, flips map[int]struct{}, n int) bool {
+	if markHi >= n {
+		return false
+	}
+	for r := range flips {
+		if r >= n {
+			return false
+		}
+	}
+	return true
 }
 
 // RefreshColumnWidths recomputes column widths without resetting scroll or
@@ -471,7 +504,16 @@ func (g *DataGrid) SetScroll(row, col int) {
 
 // SetSelectedRow sets the selected row (clamped) and scrolls it into view.
 // Does not fire OnSelectRow.
+//
+// It collapses any Shift-extended block onto the new cursor and drops
+// Ctrl+click marks (collapseSelection): setting a value programmatically drops
+// the selection. Moving only the cursor end of a block re-shaped it silently,
+// so a live view's cursor move after old rows fell off drifted the selection
+// onto other rows and Copy copied rows the user never picked. A host that
+// removed leading rows and wants the selection to stay on them calls
+// DropLeadingRows instead.
 func (g *DataGrid) SetSelectedRow(i int) {
+	defer g.collapseSelection()
 	if g.rows.Len() == 0 {
 		return
 	}
@@ -482,8 +524,10 @@ func (g *DataGrid) SetSelectedRow(i int) {
 // SetSelectedCell sets the selected row and column (both clamped) and scrolls
 // them into view — the cell-cursor analogue of SetSelectedRow, for a caller
 // (e.g. ToggleGridRow.activateCell) that rebuilt the rows via SetData/SetSource
-// and lost selCol with them. Does not fire OnSelectRow.
+// and lost selCol with them. Does not fire OnSelectRow. Like SetSelectedRow it
+// collapses the selection onto the new cursor.
 func (g *DataGrid) SetSelectedCell(row, col int) {
+	defer g.collapseSelection()
 	if g.rows.Len() == 0 {
 		return
 	}
