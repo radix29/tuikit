@@ -31,3 +31,17 @@ func TestMouseEventName(t *testing.T) {
 		}
 	}
 }
+
+func TestReleaseNowhere(t *testing.T) {
+	ev := tcell.NewEventMouse(7, 4, tcell.Button1, tcell.ModShift|tcell.ModCtrl)
+	r := ReleaseNowhere(ev)
+	if x, y := r.Position(); x != -1 || y != -1 {
+		t.Errorf("position = (%d, %d), want (-1, -1)", x, y)
+	}
+	if r.Buttons() != tcell.ButtonNone {
+		t.Errorf("buttons = %v, want ButtonNone", r.Buttons())
+	}
+	if r.Modifiers() != ev.Modifiers() {
+		t.Errorf("modifiers = %v, want %v", r.Modifiers(), ev.Modifiers())
+	}
+}

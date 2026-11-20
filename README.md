@@ -38,13 +38,15 @@ tuikit/
 │               binary-unit size, unit chosen after rounding; FormatClock:
 │               a truncating HH:MM:SS;
 │               ParseFormattedNumber: their inverse, byte units scaled to
-│               bytes; MatchesAny:
+│               bytes; ParseClock: FormatClock's inverse, interval forms
+│               too ("2 days 03:04:05.5"); MatchesAny:
 │               a filter box's case-insensitive substring test), mathutil.go,
 │               viewport.go (Viewport: 2-D scroll offset, clamp, wheel,
 │               navigation keys (ScrollKey: End keeps the column), both
 │               scrollbars and their drag latches),
 │               linepane.go (LinePane: a read-only line pane's scroll
-│               offset, clamp, inset draw and "more" hint),
+│               offset, clamp, inset draw, "more" hint and
+│               LineWheel),
 │               wrap_hanging.go (WrapHanging: wrap keeping spacing, hung
 │               under a line's second column),
 │               runecol.go (rune index ↔ display column), wordutil.go (word
@@ -55,7 +57,10 @@ tuikit/
 │               contract every widget package shares),
 │               control.go (Focusable/Enabler/Bounded/KeyHandler/
 │               MouseHandler/Overlay — the control contract hosts assert on;
-│               OpenOverlay: which of a host's children has its overlay open),
+│               OpenOverlay: which of a host's children has its overlay open;
+│               RouteOverlay: an open overlay's first refusal of a mouse
+│               event), overlay_guard.go (OverlayGuard: drop a held press
+│               once the host's overlay layers changed under it),
 │               gesture.go (Gesture: which zone of a host claimed the held
 │               Button1 press, routed to until release),
 │               drag.go (Drag: a drag-and-drop payload armed on a press,
@@ -70,7 +75,8 @@ tuikit/
 │               keys.go (NormalizeKey: the Ctrl+letter fold;
 │               IsCtrlEnter: both Ctrl+Enter encodings), mouse.go
 │               (MouseEventName: "Shift+Button1", tcell's missing
-│               EventMouse.Name)
+│               EventMouse.Name; ReleaseNowhere: a release that resets
+│               latches without lighting hover)
 ├── widgets/    InputField, DropDown, CheckBox, Button, RadioBox, Spinner — one file each;
 │               progress_bar.go (DrawProgressBar: a determinate █/░ bar
 │               with a trailing percentage, negative = indeterminate)
@@ -125,7 +131,9 @@ tuikit/
 │               hit-test, "More ▾"; drawn by the host), tab_bar.go (TabBar:
 │               a one-row strip of plain tabs plus an optional right-aligned
 │               cell, draw and hit-test over TabStripSegments), treeview.go (with an
-│               optional top-border action, SetTitleButton), listbox.go;
+│               optional top-border action, SetTitleButton),
+│               treemodel.go (TreeModel: a lazily loaded tree projected
+│               into a TreeView; host nodes embed TreeItem), listbox.go;
 │               DataGrid: datagrid.go (state/source/widths), _draw, _input,
 │               _overlay (right-click menu, "Show Value"), _sort (a host's
 │               column sort: PermutedSource, SetSourceReordered, SortMenuItems),
@@ -384,9 +392,13 @@ each before the first Draw (or, for a runtime change, between frames):
 
 The host defines its domain types, wires controls with callbacks that load its
 data, embeds `dialogs.ModalDialog` in its own dialogs, and implements
-`layout.Panel` for its panes. In goSSMS, for example, the Object Explorer owns
-the tree model and projects it into a flat `[]controls.TreeNode`; all walking,
-scrolling and expand/collapse lives once in `controls.TreeView`. The host owns
+`layout.Panel` for its panes. A tree is a `controls.TreeView` over a flat
+`[]controls.TreeNode`; a host with a lazily loaded tree drives it through a
+`controls.TreeModel`, its node type embedding `controls.TreeItem`. In goSSMS,
+for example, the Object Explorer's `explorerNode` owns the SQL Server data and
+the loaders, and the model owns the rest: IDs, the "Loading..." row, retiring a
+replaced subtree and putting the selection back after every rebuild. All
+walking, scrolling and expand/collapse lives once in `controls.TreeView`. The host owns
 the event loop and the one UI goroutine (`ARCHITECTURE.md` § Threading).
 
 ## Adding a new control
@@ -442,8 +454,10 @@ func (d *MyDialog) HandleMouse(ev *tcell.EventMouse) bool {
 ```
 
 Give a `dialogs.Stack` the screen once (`SetScreen`), register every dialog
-once — up front, or when the host first builds it; registering hands it the
-screen it centres on — and let the Stack host them: call
+once — up front, or when the host first builds it (`dialogs.Lazy(st, mk)`
+builds and registers a type's one dialog on first use; `Built` asks without
+building); registering hands it the screen it centres on — and let the Stack
+host them: call
 `Sync` before routing an event and before drawing, then `Draw`, `Relayout` (on
 resize), `HandleKey`/`HandleMouse` (they report whether a dialog consumed the
 event) and `ClipboardTarget`. **Clip contract:** a dialog clamped to a small

@@ -14,10 +14,17 @@ import (
 // those instead and needs none of this.
 
 // TextCellKey is one cell read for sorting: a number when the whole cell is
-// one (core.ParseFormattedNumber: separators, a trailing unit or %), its
-// case-folded text otherwise, or blank for a cell that holds no value yet or
-// none at all (see NewTextCellKey). The zero value is a blank, which a host
-// can use for a row too short to have the column.
+// one (core.ParseFormattedNumber: separators, a trailing unit or %) or is a
+// clock-style duration (core.ParseClock: "01:02:03", "2 days 03:04:05",
+// read as seconds, so it sorts and aligns as a number), its case-folded text
+// otherwise, or blank for a cell that holds no value yet or none at all (see
+// NewTextCellKey). The zero value is a blank, which a host can use for a row
+// too short to have the column.
+//
+// Durations read as numbers since 2026-11-20 (pgMS's interval columns): until
+// then "00:01:02" was text, left-aligned and compared as a string — the same
+// order for zero-padded FormatClock cells under 100 hours, which is why the
+// change reorders nothing an existing host showed except past 99:59:59.
 type TextCellKey struct {
 	filled bool
 	isNum  bool
@@ -38,6 +45,11 @@ func NewTextCellKey(cell string) TextCellKey {
 	s := strings.TrimSpace(cell)
 	if textCellPlaceholders[s] {
 		return TextCellKey{}
+	}
+	// A duration first: "1 day" is a day, which ParseFormattedNumber would read
+	// as the bare 1 with its unit stripped.
+	if d, ok := core.ParseClock(s); ok {
+		return TextCellKey{filled: true, isNum: true, num: d.Seconds()}
 	}
 	if n, ok := core.ParseFormattedNumber(s); ok {
 		return TextCellKey{filled: true, isNum: true, num: n}

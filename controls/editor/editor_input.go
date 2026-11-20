@@ -226,9 +226,10 @@ func (e *Editor) applyKey(ev *tcell.EventKey) (bound, fired bool) {
 		e.desiredCol = e.cursorDisplayCol()
 	}
 	e.ensureCursorVisible()
-	// A typed character may open the popup from closed only when the cursor sits at
-	// the end of a word starting with a letter or '['. While open, every key reaching
-	// here re-syncs it.
+	// A typed character may open the popup from closed only when
+	// canAutoOpenCompletion allows it: the host's SetCompletionTrigger, else a word
+	// starting with a letter or '_' ending at the cursor. While open, every key
+	// reaching here re-syncs it.
 	if e.completionOpen || (typedChar && e.canAutoOpenCompletion()) {
 		e.updateCompletion()
 	}

@@ -118,3 +118,27 @@ func OpenOverlay[T Overlay](list ...T) (T, bool) {
 	var zero T
 	return zero, false
 }
+
+// MouseOverlay is an overlay that takes mouse input: a menu, a menu bar's
+// dropdown, a layout.PanelManager whose active panel has one open. It needs
+// no DrawOverlay, since routing is all RouteOverlay does with it.
+type MouseOverlay interface {
+	OverlayActive() bool
+	MouseHandler
+}
+
+// RouteOverlay gives o first refusal of ev while its overlay is open, and
+// reports whether ev is spent. It is spent when o handled it, or when o's
+// overlay is still open afterwards: an open overlay owns every event, even
+// one it declined. A press that closed the overlay and was declined falls
+// through (false) — the right-click outside an open menu that the host
+// routes on by position, to open the next menu where it landed
+// (MouseHandler). While no overlay is open it returns false without
+// offering ev.
+//
+// Testing OverlayActive only before the call would swallow that right-click;
+// testing only HandleMouse's result would leak a declined event to whatever
+// lies under a still-open menu.
+func RouteOverlay(o MouseOverlay, ev *tcell.EventMouse) bool {
+	return o.OverlayActive() && (o.HandleMouse(ev) || o.OverlayActive())
+}

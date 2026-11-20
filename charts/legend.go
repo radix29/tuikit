@@ -26,6 +26,18 @@ func LegendItems(series []Series) []LegendItem {
 	return out
 }
 
+// BarLegendItems builds entries from the bars a chart drew, in order — the
+// legend a BarChart with LabelWidth -1 (no row labels) needs to identify its
+// colours. A stacked bar's Parts are not named per bar, so a chart of them
+// takes a host-built legend instead.
+func BarLegendItems(bars []Bar) []LegendItem {
+	out := make([]LegendItem, 0, len(bars))
+	for _, b := range bars {
+		out = append(out, LegendItem{Label: b.Label, Short: b.Short, Color: b.Color})
+	}
+	return out
+}
+
 // DrawLegend renders items into r, wrapping across r's rows.
 //
 // Degradation is ordered: full labels, then short labels, then clipping. A

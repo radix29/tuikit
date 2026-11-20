@@ -36,6 +36,35 @@ func TestLinePaneScrollClamps(t *testing.T) {
 	}
 }
 
+func TestLineWheel(t *testing.T) {
+	r := Rect{X: 2, Y: 3, W: 5, H: 4}
+	cases := []struct {
+		name   string
+		x, y   int
+		btn    tcell.ButtonMask
+		mod    tcell.ModMask
+		want   int
+		wantOK bool
+	}{
+		{"up inside", 2, 3, tcell.WheelUp, 0, -1, true},
+		{"down inside", 6, 6, tcell.WheelDown, 0, 1, true},
+		// Shift stays vertical: a LinePane has no horizontal axis.
+		{"shift up inside", 4, 4, tcell.WheelUp, tcell.ModShift, -1, true},
+		{"shift down inside", 4, 4, tcell.WheelDown, tcell.ModShift, 1, true},
+		{"down right of r", 7, 4, tcell.WheelDown, 0, 0, false},
+		{"up below r", 4, 7, tcell.WheelUp, 0, 0, false},
+		{"wheel left", 4, 4, tcell.WheelLeft, 0, 0, false},
+		{"press", 4, 4, tcell.Button1, 0, 0, false},
+		{"release", 4, 4, tcell.ButtonNone, 0, 0, false},
+	}
+	for _, c := range cases {
+		d, ok := LineWheel(tcell.NewEventMouse(c.x, c.y, c.btn, c.mod), r)
+		if d != c.want || ok != c.wantOK {
+			t.Errorf("%s: LineWheel = %d,%v, want %d,%v", c.name, d, ok, c.want, c.wantOK)
+		}
+	}
+}
+
 func TestLinePaneDrawInsetHintAndPlaceholder(t *testing.T) {
 	b := NewBuffer(14, 3)
 	p := LinePane{More: "▾ more"}

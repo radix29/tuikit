@@ -454,7 +454,7 @@ func (pm *PanelManager) HandleMouse(ev *tcell.EventMouse) bool {
 		pm.button1Held = false
 		if p := pm.stranded; p != nil {
 			pm.stranded = nil
-			p.HandleMouse(tcell.NewEventMouse(-1, -1, tcell.ButtonNone, ev.Modifiers()))
+			p.HandleMouse(core.ReleaseNowhere(ev))
 		}
 		if p := pm.ActivePanel(); p != nil {
 			return p.HandleMouse(ev)

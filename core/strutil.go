@@ -453,6 +453,80 @@ func FormatClock(d time.Duration) string {
 	return fmt.Sprintf("%02d:%02d:%02d", sec/3600, sec/60%60, sec%60)
 }
 
+// ParseClock reads a cell rendered as a clock-style duration, the inverse of
+// FormatClock ("01:02:03", "100:00:00"), and also the forms a database prints
+// for an interval: a fraction of a second ("00:00:01.25"), a day count in
+// front ("2 days 03:04:05", or "1 day" alone) and a leading minus
+// ("-00:00:05"). At most 99999 days and 999999 hours, which together stay
+// inside time.Duration's ~292 years. Minutes and seconds are exactly two digits below 60, so
+// "1:5:00" and "12:60:00" are not durations, and neither is a two-part
+// "10:30" (minutes:seconds or hours:minutes — it can't tell). A time of day
+// ("14:00:01") reads as the duration since midnight, which sorts the same.
+// s is expected trimmed.
+func ParseClock(s string) (time.Duration, bool) {
+	neg := strings.HasPrefix(s, "-")
+	if neg {
+		s = s[1:]
+	}
+	var d time.Duration
+	if n, rest, found := strings.Cut(s, " "); found {
+		unit, clock, _ := strings.Cut(rest, " ")
+		days, ok := parseDigits(n, 5)
+		if !ok || (unit != "day" && unit != "days") {
+			return 0, false
+		}
+		d, s = time.Duration(days)*24*time.Hour, clock
+		if s == "" {
+			return signed(d, neg), true
+		}
+	}
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 {
+		return 0, false
+	}
+	secs, frac, hasFrac := strings.Cut(parts[2], ".")
+	h, okH := parseDigits(parts[0], 6)
+	m, okM := parseDigits(parts[1], 2)
+	sec, okS := parseDigits(secs, 2)
+	if !okH || !okM || !okS || len(parts[1]) != 2 || len(secs) != 2 || m >= 60 || sec >= 60 {
+		return 0, false
+	}
+	d += time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(sec)*time.Second
+	if hasFrac {
+		ns, ok := parseDigits(frac, 9)
+		if !ok {
+			return 0, false
+		}
+		for range 9 - len(frac) {
+			ns *= 10
+		}
+		d += time.Duration(ns)
+	}
+	return signed(d, neg), true
+}
+
+// parseDigits reads s as 1 to maxLen ASCII digits.
+func parseDigits(s string, maxLen int) (int64, bool) {
+	if s == "" || len(s) > maxLen {
+		return 0, false
+	}
+	var n int64
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
+		}
+		n = n*10 + int64(s[i]-'0')
+	}
+	return n, true
+}
+
+func signed(d time.Duration, neg bool) time.Duration {
+	if neg {
+		return -d
+	}
+	return d
+}
+
 // ParseFormattedNumber reads a cell rendered from a number, the inverse of
 // FormatThousands ("1,234") and FormatBytes ("4.0 KB"), and also a percentage
 // ("45%") or a number followed by a short unit ("250 ms", "12 rows"). Anything

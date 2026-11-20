@@ -17,6 +17,19 @@ func TestCompareTextCellsScalesByteUnits(t *testing.T) {
 	}
 }
 
+// Durations sort by length, not by their text: past 99 hours the hour field
+// widens, and an interval column mixes day counts with clocks.
+func TestCompareTextCellsOrdersDurations(t *testing.T) {
+	cells := []string{"100:00:00", "1 day", "99:00:00", "00:00:05.5", "2 days 00:00:01", "00:00:05", "-00:00:01"}
+	slices.SortFunc(cells, func(a, b string) int {
+		return CompareTextCells(NewTextCellKey(a), NewTextCellKey(b), false)
+	})
+	want := []string{"-00:00:01", "00:00:05", "00:00:05.5", "1 day", "2 days 00:00:01", "99:00:00", "100:00:00"}
+	if !slices.Equal(cells, want) {
+		t.Errorf("sorted = %v, want %v", cells, want)
+	}
+}
+
 // Numbers by value ahead of text, text case-insensitively, and the
 // placeholders last in both directions.
 func TestCompareTextCellsOrder(t *testing.T) {
@@ -48,7 +61,10 @@ func TestClassifyTextCell(t *testing.T) {
 		"45%": CellNumber, "-7": CellNumber, " 12 ": CellNumber,
 		"…": CellBlank, "N/A": CellBlank, "": CellBlank, "-": CellBlank, "—": CellBlank,
 		"dbo.a": CellText, "16.0.4135.4": CellText, "2026-11-19": CellText,
-		"14:00:01": CellText, "True": CellText,
+		"2026-11-19 14:00:01": CellText, "10:30": CellText, "True": CellText,
+		// Clock-style durations are numbers (core.ParseClock).
+		"14:00:01": CellNumber, "100:00:00": CellNumber, "2 days 03:04:05": CellNumber,
+		"00:00:01.5": CellNumber, "1 day": CellNumber,
 	} {
 		if got := ClassifyTextCell(cell); got != want {
 			t.Errorf("ClassifyTextCell(%q) = %v, want %v", cell, got, want)

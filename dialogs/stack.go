@@ -2,6 +2,7 @@ package dialogs
 
 import (
 	"cmp"
+	"reflect"
 	"slices"
 
 	"github.com/gdamore/tcell/v3"
@@ -34,10 +35,11 @@ type Dialog interface {
 // where the answer matters: before routing an event (a callback it ran may have
 // opened one) and before drawing (the event may have opened or closed one).
 type Stack struct {
-	all    []Dialog     // every registered dialog, in registration order
-	open   []Dialog     // the open ones, bottom to top
-	orders []uint64     // open[i]'s showOrder when Sync pushed it
-	screen tcell.Screen // given to every registered dialog (SetScreen)
+	all    []Dialog                // every registered dialog, in registration order
+	open   []Dialog                // the open ones, bottom to top
+	orders []uint64                // open[i]'s showOrder when Sync pushed it
+	screen tcell.Screen            // given to every registered dialog (SetScreen)
+	slots  map[reflect.Type]Dialog // Lazy's one dialog per type (lazy.go)
 }
 
 // screenUser is a Dialog that centres and sizes itself against a screen —
@@ -48,10 +50,16 @@ type screenUser interface{ SetScreen(s tcell.Screen) }
 // passing it to every dialog registered so far and, from then on, to each
 // dialog as it is registered (ModalDialog.SetScreen). A host calls it once,
 // before showing a dialog; dialog constructors take no screen. A Dialog that
-// does not embed ModalDialog is left alone.
+// does not embed ModalDialog is left alone. A dialog Replace put in a slot
+// gets it too, registered or not.
 func (st *Stack) SetScreen(s tcell.Screen) {
 	st.screen = s
 	for _, d := range st.all {
+		if u, ok := d.(screenUser); ok {
+			u.SetScreen(s)
+		}
+	}
+	for _, d := range st.slots {
 		if u, ok := d.(screenUser); ok {
 			u.SetScreen(s)
 		}

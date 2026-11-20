@@ -206,7 +206,7 @@ const (
 func (g *DataGrid) HandleMouse(ev *tcell.EventMouse) bool {
 	// A right-click outside the open menu dismisses it and falls through
 	// (core.MouseHandler), so it opens a fresh menu on the cell it landed on.
-	if g.ctxMenu.OverlayActive() && (g.ctxMenu.HandleMouse(ev) || g.ctxMenu.OverlayActive()) {
+	if core.RouteOverlay(&g.ctxMenu, ev) {
 		return true
 	}
 	// The popup, while showing, and the tail of the gesture that closed it.

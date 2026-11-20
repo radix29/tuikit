@@ -112,3 +112,14 @@ func TestLegendItemsPreservesOrderAndColour(t *testing.T) {
 		t.Errorf("LegendItems = %+v, want the series order and colours preserved", items)
 	}
 }
+
+func TestBarLegendItemsPreservesOrderLabelsAndColour(t *testing.T) {
+	items := BarLegendItems([]Bar{
+		{Label: "one", Short: "1", Value: 5, Color: colA},
+		{Label: "two", Short: "2", Value: 9, Color: colB},
+	})
+	want := []LegendItem{{Label: "one", Short: "1", Color: colA}, {Label: "two", Short: "2", Color: colB}}
+	if len(items) != len(want) || items[0] != want[0] || items[1] != want[1] {
+		t.Errorf("BarLegendItems = %+v, want %+v", items, want)
+	}
+}

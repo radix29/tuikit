@@ -141,6 +141,16 @@ Two consequences:
 - A host that opens a dialog from a press (a context-menu item) drops the
   held `Button1` when its modal layer changes mid-gesture; otherwise
   twitching before release fires whatever dialog button is under the pointer.
+  `core.OverlayGuard[S]` is that rule: the host's `S` is a comparable
+  snapshot of its layers (top dialog, which menus are open), and
+  `Drop(ev, fresh, snap)` (`snap` a func, read only for `Button1`), called before any routing with its router-level
+  `PressLatch` verdict, records it on the fresh press and reports a held
+  `Button1` taken under a different one. Releases always pass.
+- A layer that must reset its latches on a release but must not see where it
+  landed — the one under an open dialog or menu, a child the gesture left —
+  gets `core.ReleaseNowhere(ev)` instead: `ButtonNone` at (-1, -1). Motion is
+  `ButtonNone` too, so the real position would light hover behind the
+  overlay.
 
 ### One owner per press inside a widget
 
@@ -247,7 +257,11 @@ A widget whose open state floats outside its rect — `DropDown`'s list,
   for *its* host to call last (`propsheet.GridRow` does).
 - offers every event to an `OverlayActive()` widget first in its own
   `HandleKey`/`HandleMouse` — the wheel included — before positional routing
-  (`core.OpenOverlay(children...)` finds it among several).
+  (`core.OpenOverlay(children...)` finds it among several). For the mouse,
+  `core.RouteOverlay(o, ev)` is the whole test: the event is spent if `o`
+  took it or is still open after it, so a declined event never leaks under
+  an open menu, and a right-click that closed the menu falls through to
+  open the next one where it landed.
   A `DropDown`'s open list is clamped to the *screen*, not the dialog, so a
   dialog routing one by hand offers it every event before
   `ConsumeOutsideClick`.

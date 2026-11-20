@@ -12,8 +12,8 @@ import (
 // placeholder instead (nothing selected).
 //
 // Like Viewport it is a value the host embeds, not a control: the host builds
-// the lines (and caches them, keyed on its own item), routes keys, wheel and
-// focus, and passes the same line count to Draw and ScrollBy so the last line
+// the lines (and caches them, keyed on its own item), routes keys, wheel
+// (LineWheel) and focus, and passes the same line count to Draw and ScrollBy so the last line
 // is always reachable and never overshot.
 type LinePane struct {
 	Scroll int    // the first line drawn
@@ -38,6 +38,37 @@ func (p *LinePane) ScrollTo(line, n, h int) bool {
 // ScrollBy is ScrollTo relative to the current Scroll.
 func (p *LinePane) ScrollBy(delta, n, h int) bool {
 	return p.ScrollTo(p.Scroll+delta, n, h)
+}
+
+// LineWheel is the scroll a wheel tick over a LinePane's rect r asks for:
+// delta is -1 for WheelUp, +1 for WheelDown, and ok is false for any other
+// event or a pointer outside r. The host passes delta to its ScrollBy and
+// claims the event whenever ok, so a tick at the top or bottom is swallowed
+// rather than falling through to whatever is under the pane.
+//
+// Shift+WheelUp/Down scroll vertically too, unlike WheelDelta (which turns
+// them sideways for Viewport): a LinePane has no horizontal axis, so the
+// desktop convention would leave Shift+wheel dead over it. WheelLeft/Right
+// are not ticks for it (ok is false) and fall through.
+//
+// A function, not a ScrollBy wrapper, because hosts build the line count
+// from the selected item (wrapping it to the pane's width) and should only
+// pay for that on a tick that scrolls, and because r is the hit area, which
+// may be taller than the rows drawn (a pane with a heading row).
+func LineWheel(ev *tcell.EventMouse, r Rect) (delta int, ok bool) {
+	var d int
+	switch ev.Buttons() {
+	case tcell.WheelUp:
+		d = -1
+	case tcell.WheelDown:
+		d = 1
+	default:
+		return 0, false
+	}
+	if !r.Contains(ev.Position()) {
+		return 0, false
+	}
+	return d, true
 }
 
 // CanUp reports whether lines are hidden above.

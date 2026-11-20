@@ -233,6 +233,52 @@ func TestFormatClock(t *testing.T) {
 	}
 }
 
+func TestParseClock(t *testing.T) {
+	ok := map[string]time.Duration{
+		"00:00:00":         0,
+		"01:02:03":         time.Hour + 2*time.Minute + 3*time.Second,
+		"100:00:00":        100 * time.Hour,
+		"00:00:01.25":      1250 * time.Millisecond,
+		"00:00:00.000001":  time.Microsecond,
+		"1 day":            24 * time.Hour,
+		"2 days 03:04:05":  51*time.Hour + 4*time.Minute + 5*time.Second,
+		"-00:00:05":        -5 * time.Second,
+		"-1 day 00:00:01":  -(24*time.Hour + time.Second),
+		"14:00:01":         14*time.Hour + time.Second,
+		"0 days 00:00:00":  0,
+		"123456:59:59":     123456*time.Hour + 59*time.Minute + 59*time.Second,
+		"99999 days":       99999 * 24 * time.Hour,
+		"00:00:00.1234567": 123456700,
+	}
+	for in, want := range ok {
+		if got, isClock := ParseClock(in); !isClock || got != want {
+			t.Errorf("ParseClock(%q) = %v, %v; want %v, true", in, got, isClock, want)
+		}
+	}
+	for _, in := range []string{
+		"", "-", "10:30", "1:5:00", "12:60:00", "00:00:60", "00:0a:00", "00:00:00.",
+		"00:00:00.1234567890", "a:00:00", "1 week 00:00:00", "day 00:00:00",
+		"2026-11-20 14:03:22", "16.0.4135.4", "1,234", "12 MB", "1 mon 2 days",
+		" 00:00:01", "00:00:01 ", "+00:00:01", "1234567:00:00", "100000 days", "00:00:00:00",
+	} {
+		if d, isClock := ParseClock(in); isClock {
+			t.Errorf("ParseClock(%q) = %v, want not a duration", in, d)
+		}
+	}
+}
+
+// ParseClock is FormatClock's inverse, so the pair can't drift apart: every
+// whole-second duration FormatClock writes reads back exactly.
+func TestParseClockRoundTrips(t *testing.T) {
+	for _, d := range []time.Duration{0, time.Second, 59 * time.Second, time.Hour - time.Second,
+		25*time.Hour + 61*time.Second, 99*time.Hour + 59*time.Minute + 59*time.Second, 1000 * time.Hour} {
+		s := FormatClock(d)
+		if got, ok := ParseClock(s); !ok || got != d {
+			t.Errorf("ParseClock(FormatClock(%v) = %q) = %v, %v", d, s, got, ok)
+		}
+	}
+}
+
 func TestFormatBytes(t *testing.T) {
 	cases := []struct {
 		n    int64

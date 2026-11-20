@@ -64,7 +64,7 @@ func (v VBarChart) Draw(s tcell.Screen, r core.Rect) {
 		v.drawLabels(s, frame.plot, frame.timeRow)
 	} else {
 		blankRect(s, frame.timeRow)
-		DrawLegend(s, frame.legend, LegendItems(barSeries(v.Bars)))
+		DrawLegend(s, frame.legend, BarLegendItems(v.Bars))
 	}
 }
 
