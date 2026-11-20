@@ -57,6 +57,20 @@ func NewSplitter(dir SplitterDir, ratio float64) *Splitter {
 	return sp
 }
 
+// ResizeHint is the suffix a stacked pane's label carries to say how its bar
+// moves: a drag, or the Ctrl+Up/Down HandleKey answers to.
+const ResizeHint = "(drag or Ctrl+Up/Down to resize)"
+
+// NewStackSplitter is the stacked-panes preset: a horizontal bar halving the
+// rect, within the default limits, with label drawn on it as the title strip
+// of the second pane (e.g. "─── Results ─── " + ResizeHint); "" draws none.
+// SetRatio and SetLimits still apply.
+func NewStackSplitter(label string) *Splitter {
+	sp := NewSplitter(SplitterHorizontal, 0.5)
+	sp.SetLabel(label)
+	return sp
+}
+
 // SetLabel sets the text drawn on a horizontal splitter's bar; "" draws none.
 // A vertical bar has no room for one and ignores it.
 func (sp *Splitter) SetLabel(label string) { sp.label = label }

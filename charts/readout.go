@@ -8,9 +8,9 @@ import (
 
 // A chart readout is the box a click on a chart pins, naming what the colours
 // under the pointer are worth: a caption (the moment, or the chart), then one
-// row per series. The host owns the pin — what identifies it, when it opens
-// and closes; this file owns the box, so every chart host's readout reads as
-// the same thing.
+// row per series. This file owns the box, so every chart host's readout reads
+// as the same thing; Pin (pin.go) owns its life — what identifies it, where it
+// is each frame, when it closes — and the host decides what opens it.
 
 // readoutPad is the space between a readout's frame and its text.
 const readoutPad = 1

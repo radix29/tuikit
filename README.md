@@ -160,7 +160,9 @@ tuikit/
 │               right-aligned KPIs), plot_hit.go (PlotHit: map a click on a
 │               drawn plot back to a bucket and the value drawn there),
 │               readout.go (the box a click on a chart pins: size, placement,
-│               draw; DrawAxisCallout names its moment on the time axis)
+│               draw; DrawAxisCallout names its moment on the time axis),
+│               pin.go (Pin: the pinned readout's life — pin a bucket, not a
+│               column; follow it as samples push it left; close on prune)
 ├── clipboard/  The system clipboard behind a host's Copy/Paste — native.go
 │               (Write/Read through pbcopy, wl-copy, xclip or xsel),
 │               native_windows.go (the Win32 CF_UNICODETEXT path; tuikit's one

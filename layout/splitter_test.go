@@ -230,3 +230,28 @@ func TestSplitterBarStaysInsideRect(t *testing.T) {
 		}
 	}
 }
+
+// TestStackSplitterPreset pins the stacked-panes preset: a horizontal bar at
+// half the rect, the default limits, and the label drawn on the bar.
+func TestStackSplitterPreset(t *testing.T) {
+	label := "─── Results ─── " + ResizeHint
+	sp := NewStackSplitter(label)
+	if sp.dir != SplitterHorizontal || sp.Ratio() != 0.5 {
+		t.Fatalf("dir, ratio = %v, %v; want horizontal, 0.5", sp.dir, sp.Ratio())
+	}
+	if sp.minRatio != defaultMinRatio || sp.maxRatio != defaultMaxRatio {
+		t.Fatalf("limits = %v–%v, want the defaults %v–%v", sp.minRatio, sp.maxRatio, defaultMinRatio, defaultMaxRatio)
+	}
+	sp.SetRatio(0.95)
+	if got := sp.Ratio(); got != defaultMaxRatio {
+		t.Fatalf("SetRatio(0.95) = %v, want clamped to %v", got, defaultMaxRatio)
+	}
+	sp.SetRatio(0.5)
+
+	sp.SetBounds(0, 0, 60, 20)
+	s := tuikittest.NewScreen(60, 20)
+	sp.Draw(s)
+	if x, y, ok := s.Find(label); !ok || y != sp.SplitPos() || x != 2 {
+		t.Errorf("label at (%d,%d) found=%v, want (2,%d) on the bar", x, y, ok, sp.SplitPos())
+	}
+}
