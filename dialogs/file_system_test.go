@@ -3,6 +3,7 @@ package dialogs
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -40,5 +41,38 @@ func TestLocalFileSystemExistsReportsPermissionError(t *testing.T) {
 	exists, _, err := LocalFileSystem{}.Exists(filepath.Join(locked, "x"))
 	if err == nil {
 		t.Fatalf("Exists under an unreadable directory = (%v, nil), want an error", exists)
+	}
+}
+
+// On Windows the local filesystem has a drive-list level above the drive roots,
+// as WindowsPathRules does for a remote host; elsewhere it is unchanged.
+func TestLocalFileSystemDriveList(t *testing.T) {
+	var lfs LocalFileSystem
+	if runtime.GOOS != "windows" {
+		if got := lfs.Parent("/"); got != "/" {
+			t.Errorf("Parent(/) = %q, want /", got)
+		}
+		if got := lfs.Clean(""); got == "" {
+			t.Error(`Clean("") must stay the working directory off Windows`)
+		}
+		return
+	}
+	if got := lfs.Parent(`C:\`); got != "" {
+		t.Errorf(`Parent(C:\) = %q, want ""`, got)
+	}
+	if got := lfs.Clean(""); got != "" {
+		t.Errorf(`Clean("") = %q, want ""`, got)
+	}
+	drives, err := lfs.List("")
+	if err != nil || len(drives) == 0 {
+		t.Fatalf(`List("") = %v, %v; want at least one drive`, drives, err)
+	}
+	for _, d := range drives {
+		if !d.IsDir || len(d.Name) != 2 || d.Name[1] != ':' {
+			t.Errorf("drive entry %+v is not a bare drive like C:", d)
+		}
+		if got := lfs.Clean(lfs.Join("", d.Name)); got != d.Name+`\` {
+			t.Errorf("entering %q gives %q, want its root", d.Name, got)
+		}
 	}
 }

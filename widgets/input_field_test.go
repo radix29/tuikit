@@ -549,3 +549,26 @@ func TestInputFieldPasteSkipsLeadingBlankLines(t *testing.T) {
 		}
 	}
 }
+
+func TestInputFieldPasteWhitespaceOnly(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{" ", " "},
+		{"   ", "   "},
+		{"\t", " "},
+		{"  \n x", " x"},
+		{"", ""},
+		{"\n", ""},
+	} {
+		f := NewInputField("", 40, false)
+		f.Paste(tc.in)
+		if f.Value() != tc.want {
+			t.Errorf("Paste(%q) = %q, want %q", tc.in, f.Value(), tc.want)
+		}
+	}
+	f := newTestInputField("abcdef")
+	f.HandleKey(tuikittest.Key(tcell.KeyCtrlA, tcell.ModNone))
+	f.Paste(" ")
+	if f.Value() != " " {
+		t.Errorf("whitespace paste over a selection = %q, want a single space", f.Value())
+	}
+}

@@ -3,6 +3,7 @@ package dialogs
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/gdamore/tcell/v3"
@@ -62,10 +63,16 @@ func TestFileDialogLoadDirAtRootOmitsParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.loadDir(root)
-	for _, e := range d.entries {
-		if e.Name == ".." {
-			t.Fatalf("filesystem root listing should not include a %q entry", "..")
+	hasParent := len(d.entries) > 0 && d.entries[0].Name == ".."
+	if runtime.GOOS == "windows" {
+		// A drive root has the drive list above it.
+		if !hasParent {
+			t.Fatalf("drive root listing should offer %q to the drive list", "..")
 		}
+		return
+	}
+	if hasParent {
+		t.Fatalf("filesystem root listing should not include a %q entry", "..")
 	}
 }
 

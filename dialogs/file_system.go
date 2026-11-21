@@ -96,7 +96,13 @@ type PathRules interface {
 // supplies another: the local machine, via os and path/filepath.
 type LocalFileSystem struct{}
 
+// List on Windows treats "" as the drive-list level above every drive root (the
+// level WindowsPathRules.Parent returns for a drive root), one directory row per
+// drive that answers a stat. Elsewhere "" is just an invalid path.
 func (LocalFileSystem) List(dir string) ([]FileEntry, error) {
+	if dir == "" && runtime.GOOS == "windows" {
+		return localDrives(), nil
+	}
 	infos, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
@@ -118,7 +124,34 @@ func (LocalFileSystem) Default() string {
 	return wd
 }
 
+// localDrives probes A: to Z: with os.Stat (no CGO, no syscall package). Nothing
+// is cached: drives come and go.
+func localDrives() []FileEntry {
+	var drives []FileEntry
+	for c := 'A'; c <= 'Z'; c++ {
+		// Named "C:", as a remote host's rows are: the dialog appends the separator
+		// to a directory row, and Clean turns the entered "C:" into `C:\`.
+		name := string(c) + ":"
+		if info, err := os.Stat(name + `\`); err == nil && info.IsDir() {
+			drives = append(drives, FileEntry{Name: name, IsDir: true})
+		}
+	}
+	return drives
+}
+
+// Clean keeps "" as "" on Windows: the drive-list level, which filepath.Abs("")
+// would turn into the working directory.
 func (LocalFileSystem) Clean(dir string) string {
+	if runtime.GOOS == "windows" {
+		if dir == "" {
+			return ""
+		}
+		// A bare "C:" means the current directory on C:, which Abs would resolve;
+		// from the drive list it means that drive's root.
+		if len(dir) == 2 && dir[1] == ':' {
+			return dir + `\`
+		}
+	}
 	clean := filepath.Clean(dir)
 	if abs, err := filepath.Abs(clean); err == nil {
 		clean = abs
@@ -126,11 +159,27 @@ func (LocalFileSystem) Clean(dir string) string {
 	return clean
 }
 
-func (LocalFileSystem) Join(dir, name string) string       { return filepath.Join(dir, name) }
+// Join under the drive list ("" on Windows) returns name as is: filepath.Join
+// would turn the drive row "C:" into "C:.", the current directory on C.
+func (LocalFileSystem) Join(dir, name string) string {
+	if dir == "" && runtime.GOOS == "windows" {
+		return name
+	}
+	return filepath.Join(dir, name)
+}
 func (LocalFileSystem) Split(path string) (string, string) { return filepath.Split(path) }
-func (LocalFileSystem) Parent(dir string) string           { return filepath.Dir(dir) }
 func (LocalFileSystem) IsAbs(path string) bool             { return filepath.IsAbs(path) }
 func (LocalFileSystem) Separator() string                  { return string(filepath.Separator) }
+
+// Parent on Windows follows WindowsPathRules: a drive root or UNC share root has
+// the drive list ("") above it, so the dialog offers ".." there. Elsewhere it is
+// filepath.Dir.
+func (LocalFileSystem) Parent(dir string) string {
+	if runtime.GOOS == "windows" {
+		return WindowsPathRules{}.Parent(dir)
+	}
+	return filepath.Dir(dir)
+}
 
 // FoldsCase guesses from the client OS: Windows and macOS's default volumes
 // are case-insensitive. A case-sensitive APFS volume or a case-insensitive
