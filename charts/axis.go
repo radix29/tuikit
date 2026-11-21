@@ -2,6 +2,7 @@ package charts
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/gdamore/tcell/v3"
@@ -112,9 +113,15 @@ func drawTimeAxis(s tcell.Screen, row, plot core.Rect, now string, interval time
 // beyond that.
 func formatAge(d, span time.Duration) string {
 	if span < time.Minute {
-		return fmt.Sprintf("-%ds", int(d.Seconds()))
+		if d%time.Second != 0 {
+			// Sub-second ages: one decimal so neighbouring dividers differ.
+			if t := math.Round(d.Seconds()*10) / 10; t != 0 {
+				return fmt.Sprintf("-%.1fs", t)
+			}
+		}
+		return fmt.Sprintf("-%ds", int(d.Round(time.Second).Seconds()))
 	}
-	secs := int(d.Seconds())
+	secs := int(d.Round(time.Second).Seconds())
 	return fmt.Sprintf("-%d:%02d", secs/60, secs%60)
 }
 

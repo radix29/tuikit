@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAutoScaleRoundsUpToNiceMaximum(t *testing.T) {
@@ -134,6 +135,34 @@ func TestFormatValueStaysCompactAcrossBoundaries(t *testing.T) {
 					t.Errorf("FormatValue(%v) = %q", x, FormatValue(x))
 				}
 			}
+		}
+	}
+}
+
+func TestFormatValueRoundedZeroDropsSign(t *testing.T) {
+	for v, want := range map[float64]string{
+		-0.0001: "0.0", -0.004: "0.0", -0.006: "-0.01", math.Copysign(0, -1): "0.0",
+	} {
+		if got := FormatValue(v); got != want {
+			t.Errorf("FormatValue(%v) = %q, want %q", v, got, want)
+		}
+	}
+}
+
+func TestFormatAgeSubSecond(t *testing.T) {
+	short, long := 3*time.Second, 10*time.Minute
+	for _, c := range []struct {
+		d, span time.Duration
+		want    string
+	}{
+		{250 * time.Millisecond, short, "-0.3s"},
+		{750 * time.Millisecond, short, "-0.8s"},
+		{time.Second, short, "-1s"},
+		{59600 * time.Millisecond, time.Minute - 1, "-59.6s"},
+		{90*time.Second + 600*time.Millisecond, long, "-1:31"},
+	} {
+		if got := formatAge(c.d, c.span); got != c.want {
+			t.Errorf("formatAge(%v, %v) = %q, want %q", c.d, c.span, got, c.want)
 		}
 	}
 }

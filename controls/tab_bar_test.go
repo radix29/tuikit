@@ -155,3 +155,28 @@ func TestTabBarZeroWidthDrawsAndHitsNothing(t *testing.T) {
 		t.Error("zero-width bar hit")
 	}
 }
+
+func TestTabBarRightCellBoundaryFit(t *testing.T) {
+	b := &TabBar{Labels: []string{"ab", "cd"}, Inset: 1, Right: "xy"}
+	b.SetBounds(0, 0, 40)
+	segs := b.Segments()
+	last := segs[len(segs)-1][0]
+	col := last.X + last.W + 1 // first column after the one blank column
+	w := col + 2 + 1           // Right at col, one blank column before the edge
+
+	b.SetBounds(0, 0, w)
+	if r, want := b.RightRect(), (core.Rect{X: col, Y: 0, W: 2, H: 1}); r != want {
+		t.Errorf("boundary width %d: RightRect = %+v, want %+v", w, r, want)
+	}
+	b.SetBounds(0, 0, w-1)
+	if r := b.RightRect(); r != (core.Rect{}) {
+		t.Errorf("one column narrower: RightRect = %+v, want zero", r)
+	}
+
+	// No tabs: nothing to keep a blank column from, so the cell may start at the inset.
+	n := &TabBar{Inset: 1, Right: "xy"}
+	n.SetBounds(0, 0, 4)
+	if r, want := n.RightRect(), (core.Rect{X: 1, Y: 0, W: 2, H: 1}); r != want {
+		t.Errorf("no tabs: RightRect = %+v, want %+v", r, want)
+	}
+}

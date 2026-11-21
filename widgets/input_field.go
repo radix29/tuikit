@@ -414,12 +414,18 @@ func (f *InputField) HandleKey(ev *tcell.EventKey) bool {
 	case tcell.KeyLeft:
 		if ctrlHeld {
 			f.cursor = f.wordLeft()
+		} else if hadSelection && !shiftHeld {
+			// Plain Left collapses a selection to its start rather than stepping.
+			f.cursor, _ = f.selectionBounds()
 		} else if f.cursor > 0 {
 			f.cursor = core.PrevGrapheme(f.displayRunes(), f.cursor)
 		}
 	case tcell.KeyRight:
 		if ctrlHeld {
 			f.cursor = f.wordRight()
+		} else if hadSelection && !shiftHeld {
+			// Plain Right collapses a selection to its end rather than stepping.
+			_, f.cursor = f.selectionBounds()
 		} else if f.cursor < len(f.value) {
 			f.cursor = core.NextGrapheme(f.displayRunes(), f.cursor)
 		}

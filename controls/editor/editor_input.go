@@ -259,7 +259,36 @@ func (e *Editor) keyVertical(k keyCtx, dir int) keyOutcome {
 	return keyActed
 }
 
+// collapseSelection handles plain Left (toEnd false) and Right (toEnd true) over a
+// selection: the caret goes to the selection's start or end instead of stepping.
+// A block selection collapses to its left or right display column on the cursor's
+// row. It reports whether it acted; Shift and Ctrl keep their usual meaning.
+func (e *Editor) collapseSelection(k keyCtx, toEnd bool) bool {
+	if !k.hadSelection || k.shift || k.ctrl {
+		return false
+	}
+	if e.selBlock {
+		loX, hiX := e.blockXBounds()
+		lo, hi := e.blockRuneRange(e.cursorRow, loX, hiX)
+		e.cursorCol = lo
+		if toEnd {
+			e.cursorCol = hi
+		}
+		return true
+	}
+	sr, sc, er, ec := e.selectionBounds()
+	if toEnd {
+		e.cursorRow, e.cursorCol = er, ec
+	} else {
+		e.cursorRow, e.cursorCol = sr, sc
+	}
+	return true
+}
+
 func (e *Editor) keyLeft(k keyCtx) keyOutcome {
+	if e.collapseSelection(k, false) {
+		return keyActed
+	}
 	if k.ctrl {
 		if e.cursorCol > 0 {
 			e.cursorCol = core.WordBoundaryLeft(e.doc.Line(e.cursorRow), e.cursorCol)
@@ -279,6 +308,9 @@ func (e *Editor) keyLeft(k keyCtx) keyOutcome {
 }
 
 func (e *Editor) keyRight(k keyCtx) keyOutcome {
+	if e.collapseSelection(k, true) {
+		return keyActed
+	}
 	if k.ctrl {
 		if e.cursorRow < e.doc.Len() && e.cursorCol < len(e.doc.Line(e.cursorRow)) {
 			e.cursorCol = core.WordBoundaryRight(e.doc.Line(e.cursorRow), e.cursorCol)

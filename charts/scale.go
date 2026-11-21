@@ -101,6 +101,9 @@ func FormatValue(v float64) string {
 		p := math.Pow10(b.decimals)
 		r := math.Round(scaled*p) / p
 		if b.below == 0 || r < b.below {
+			if r == 0 {
+				return "0.0"
+			}
 			return neg + fmt.Sprintf("%.*f%s", b.decimals, r, b.unit)
 		}
 	}
