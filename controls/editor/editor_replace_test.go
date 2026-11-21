@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/radix29/tuikit/tuikittest"
@@ -137,5 +138,71 @@ func TestReplaceSelectedLines(t *testing.T) {
 	e.undo()
 	if got := e.Text(); got != doc {
 		t.Errorf("undo left %q, want %q", got, doc)
+	}
+}
+
+// TestReplaceWithLineBreakSplitsRows: a line break in Replace splits the row like
+// Enter, so the row count and Text() agree, a round trip through SetText keeps
+// the count, and one undo restores both.
+func TestReplaceWithLineBreakSplitsRows(t *testing.T) {
+	for _, repl := range []string{"X\nY", "X\r\nY", "X\rY"} {
+		e := newTestEditor("a b\nc a")
+		setSearch(t, e, SearchOptions{Query: "a", Replace: repl})
+		if got := e.ReplaceAll(); got != 2 {
+			t.Fatalf("%q: ReplaceAll = %d, want 2", repl, got)
+		}
+		if got, want := e.Text(), "X\nY b\nc X\nY"; got != want {
+			t.Fatalf("%q: text = %q, want %q", repl, got, want)
+		}
+		if n := e.doc.Len(); n != 4 {
+			t.Fatalf("%q: %d rows, want 4", repl, n)
+		}
+		for i := range e.doc.Len() {
+			if strings.ContainsAny(string(e.doc.Line(i)), "\r\n") {
+				t.Fatalf("%q: row %d holds a line break", repl, i)
+			}
+		}
+		// The leftmost replacement is made last, so the cursor ends after its "Y".
+		if e.cursorRow != 1 || e.cursorCol != 1 {
+			t.Errorf("%q: cursor (%d,%d), want (1,1)", repl, e.cursorRow, e.cursorCol)
+		}
+		e.undo()
+		if got, want := e.Text(), "a b\nc a"; got != want || e.doc.Len() != 2 {
+			t.Fatalf("%q: undo left %q (%d rows)", repl, got, e.doc.Len())
+		}
+	}
+}
+
+func TestReplaceCurrentWithLineBreak(t *testing.T) {
+	e := newTestEditor("one a two\nlast")
+	setSearch(t, e, SearchOptions{Query: "a", Replace: "X\nY"})
+	e.FindNext(1)
+	if !e.ReplaceCurrent() {
+		t.Fatal("ReplaceCurrent replaced nothing")
+	}
+	if got, want := e.Text(), "one X\nY two\nlast"; got != want {
+		t.Fatalf("text = %q, want %q", got, want)
+	}
+	e.undo()
+	if got := e.Text(); got != "one a two\nlast" || e.doc.Len() != 2 {
+		t.Fatalf("undo left %q", got)
+	}
+}
+
+// TestReplaceWithLineBreakInSelection: the InSelection scope follows a
+// multi-row replacement, so the matches after it are still replaced.
+func TestReplaceWithLineBreakInSelection(t *testing.T) {
+	e := newTestEditor("a a\na a\nz")
+	e.SelectRange(0, 0, 1, 3)
+	setSearch(t, e, SearchOptions{Query: "a", Replace: "X\nY", InSelection: true})
+	if got := e.ReplaceAll(); got != 4 {
+		t.Fatalf("ReplaceAll = %d, want 4", got)
+	}
+	if got, want := e.Text(), "X\nY X\nY\nX\nY X\nY\nz"; got != want {
+		t.Fatalf("text = %q, want %q", got, want)
+	}
+	e.undo()
+	if got := e.Text(); got != "a a\na a\nz" {
+		t.Fatalf("undo left %q", got)
 	}
 }

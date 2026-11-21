@@ -195,8 +195,28 @@ func (f *InputField) Cut() string {
 	return text
 }
 
+// firstNonBlankLine returns the first line of text holding a non-whitespace
+// character, without its line break; "" when there is none. A clipboard that
+// opens with a blank line (a multi-line cell, a selection dragged from the line
+// above) would otherwise paste its empty first line, i.e. nothing.
+func firstNonBlankLine(text string) string {
+	for text != "" {
+		line := text
+		rest := ""
+		if nl := strings.IndexAny(text, "\r\n"); nl >= 0 {
+			line, rest = text[:nl], text[nl+1:]
+		}
+		if strings.TrimSpace(line) != "" {
+			return line
+		}
+		text = rest
+	}
+	return ""
+}
+
 // Paste inserts text at the cursor, replacing any selection. InputField is
-// single-line, so only the first line of text is used. A TAB becomes one space
+// single-line, so only the first non-blank line of text is used (leading blank
+// or whitespace-only lines are skipped). A TAB becomes one space
 // (what DrawTextLine shows for it) and every other control character is
 // dropped: typing cannot enter them, Draw skips them as zero-width, so kept
 // they rode along invisibly in the value — a grid row pasted into a server
@@ -206,9 +226,7 @@ func (f *InputField) Paste(text string) {
 	if f.disabled {
 		return
 	}
-	if nl := strings.IndexAny(text, "\r\n"); nl >= 0 {
-		text = text[:nl]
-	}
+	text = firstNonBlankLine(text)
 	text = strings.Map(func(r rune) rune {
 		switch {
 		case r == '\t':

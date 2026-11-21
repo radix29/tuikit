@@ -349,6 +349,11 @@ func (d *FileDialog) navigateTyped() {
 		if !fs.IsAbs(target) {
 			target = fs.Join(d.dir, target)
 		}
+		// A trailing ".." goes through Parent, as the ".." row does: Clean alone
+		// stops at a UNC share root, where the row goes to the drive list.
+		if base, ok := trimDotDot(target); ok {
+			target = fs.Parent(base)
+		}
 	}
 	isFile := false
 	if e, ok := d.entryFor(target); ok {
@@ -369,6 +374,20 @@ func (d *FileDialog) navigateTyped() {
 	}
 	d.loadDir(target)
 	d.setFocus(ffList)
+}
+
+// trimDotDot reports whether path ends in a ".." element and returns the path
+// before it, or "" for a bare "..".
+func trimDotDot(path string) (string, bool) {
+	if path == ".." {
+		return "", true
+	}
+	for _, sep := range []string{`\`, "/"} {
+		if base, ok := strings.CutSuffix(path, sep+".."); ok {
+			return base, true
+		}
+	}
+	return "", false
 }
 
 // activateSelected runs Enter, or a double-click, on the list: descends into

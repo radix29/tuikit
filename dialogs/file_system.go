@@ -166,10 +166,11 @@ func (WindowsPathRules) Separator() string { return `\` }
 // case-insensitively.
 func (WindowsPathRules) FoldsCase() bool { return true }
 
-// IsAbs accepts a drive-letter path ("C:\...") or a UNC path
-// (`\\server\share`).
+// IsAbs accepts a drive-letter path ("C:\..."), a UNC path
+// (`\\server\share`) or a rooted path with no drive (`\foo`), which Clean keeps
+// rooted rather than turning into a relative "foo".
 func (WindowsPathRules) IsAbs(path string) bool {
-	if strings.HasPrefix(path, `\\`) {
+	if strings.HasPrefix(path, `\`) || strings.HasPrefix(path, "/") {
 		return true
 	}
 	return len(path) >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/')
@@ -200,9 +201,14 @@ func (w WindowsPathRules) Clean(dir string) string {
 	}
 	s := strings.ReplaceAll(dir, "/", `\`)
 	prefix := ""
+	floor := 0 // leading parts that belong to the root and ".." never pops
 	if strings.HasPrefix(s, `\\`) {
 		prefix = `\\`
 		s = s[2:]
+		floor = 2 // server, share
+	} else if strings.HasPrefix(s, `\`) {
+		prefix = `\`
+		s = s[1:]
 	} else if len(s) >= 2 && s[1] == ':' {
 		prefix = s[:2] + `\`
 		s = s[2:]
@@ -212,7 +218,7 @@ func (w WindowsPathRules) Clean(dir string) string {
 		switch p {
 		case "", ".":
 		case "..":
-			if len(parts) > 0 {
+			if len(parts) > floor {
 				parts = parts[:len(parts)-1]
 			}
 		default:
