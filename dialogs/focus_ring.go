@@ -143,7 +143,7 @@ func ScrollToShow(sel, scroll, dataH int) int {
 
 // ButtonRowKey is the keyboard of a dialog's button row while it holds focus:
 // Left/Right move along the row, past a disabled button; Enter fires the
-// focused one; Escape hides; Tab and Down leave it through leave(+1), Backtab
+// focused one unless it is disabled; Escape hides; Tab and Down leave it through leave(+1), Backtab
 // and Up through leave(-1), as FieldRingKey moves between fields. Everything
 // else is swallowed — a letter typed on the row must not edit the field focus
 // came from.
@@ -158,7 +158,9 @@ func ButtonRowKey(ev *tcell.EventKey, btnFocus *int, n int, disabled []bool, fir
 	case tcell.KeyRight:
 		*btnFocus = StepButton(*btnFocus, +1, n, disabled)
 	case tcell.KeyEnter:
-		fire()
+		if !buttonDisabled(disabled, *btnFocus) {
+			fire()
+		}
 	case tcell.KeyEscape:
 		hide()
 	case tcell.KeyTab, tcell.KeyDown:
@@ -195,9 +197,17 @@ func ButtonsKey(ev *tcell.EventKey, btnFocus *int, n int, disabled []bool, fire,
 	case tcell.KeyBacktab, tcell.KeyLeft:
 		*btnFocus = StepButtonWrap(*btnFocus, -1, n, disabled)
 	case tcell.KeyEnter:
-		fire()
+		if !buttonDisabled(disabled, *btnFocus) {
+			fire()
+		}
 	}
 	return true
+}
+
+// buttonDisabled reports whether button i is disabled; disabled may be nil or
+// shorter than the row, and a missing flag means enabled.
+func buttonDisabled(disabled []bool, i int) bool {
+	return i >= 0 && i < len(disabled) && disabled[i]
 }
 
 // FieldRingKey is the keyboard of a hand-rolled dialog while focus is on one

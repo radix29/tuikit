@@ -86,11 +86,43 @@ func (r *FieldRing) Step(dir int) {
 	r.SetFocus(RingStep(r.Fields(), r.FocusIdx, dir))
 	if !r.OnButtons() {
 		r.BtnFocus = r.DefaultBtn
+		return
+	}
+	r.snapBtnFocus()
+}
+
+// disabled is the row's disabled flags, nil when the dialog sets none.
+func (r *FieldRing) disabled() []bool {
+	if r.Disabled == nil {
+		return nil
+	}
+	return r.Disabled()
+}
+
+// snapBtnFocus moves BtnFocus off a disabled button to the nearest enabled
+// one — after it first, then before it — so the focus highlight never sits on
+// a greyed button. It stays put when every button is disabled.
+func (r *FieldRing) snapBtnFocus() {
+	d := r.disabled()
+	if !buttonDisabled(d, r.BtnFocus) {
+		return
+	}
+	n := len(r.Buttons())
+	for _, dir := range [...]int{+1, -1} {
+		if j := StepButton(r.BtnFocus, dir, n, d); j != r.BtnFocus {
+			r.BtnFocus = j
+			return
+		}
 	}
 }
 
-// press fires the focused button.
-func (r *FieldRing) press() { r.Press(r.BtnFocus) }
+// press fires the focused button, unless it is disabled.
+func (r *FieldRing) press() {
+	if buttonDisabled(r.disabled(), r.BtnFocus) {
+		return
+	}
+	r.Press(r.BtnFocus)
+}
 
 // Key is the dialog's keyboard: ButtonRowKey on the button row, FieldRingKey
 // on a field (the focused widget first, so an open dropdown takes the arrows,
@@ -98,11 +130,7 @@ func (r *FieldRing) press() { r.Press(r.BtnFocus) }
 // dialog owns ahead of the ring (Find's F3) is the dialog's to test first.
 func (r *FieldRing) Key(ev *tcell.EventKey) bool {
 	if r.OnButtons() {
-		var disabled []bool
-		if r.Disabled != nil {
-			disabled = r.Disabled()
-		}
-		return ButtonRowKey(ev, &r.BtnFocus, len(r.Buttons()), disabled, r.press, r.Dismiss, r.Step)
+		return ButtonRowKey(ev, &r.BtnFocus, len(r.Buttons()), r.disabled(), r.press, r.Dismiss, r.Step)
 	}
 	return FieldRingKey(ev, r.Focused(), r.press, r.Dismiss, r.Step)
 }
@@ -113,6 +141,9 @@ func (r *FieldRing) Mouse(ev *tcell.EventMouse, d *ModalDialog) bool {
 	return RingMouse(ev, d, &r.Drag, r.Fields(), r.FocusIdx, r.Buttons(),
 		r.SetFocus,
 		func(btn int) {
+			if buttonDisabled(r.disabled(), btn) {
+				return
+			}
 			r.BtnFocus = btn
 			r.Press(btn)
 		})
