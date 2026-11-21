@@ -337,3 +337,48 @@ func TestTreeModelRetireKeepsChildren(t *testing.T) {
 		t.Error("the retired group still answers after the rebuild")
 	}
 }
+
+func TestTreeModelSetChildrenReplacesAndRetiresOld(t *testing.T) {
+	tt := newTMTree()
+	root := tmNodes("r")[0]
+	tt.m.AddRoot(root)
+	old := tt.deliver(root, "a", "b")
+	tt.deliver(root, "c", "d")
+	if len(tt.retired) != 2 || !slices.Equal(tt.retired, old) {
+		t.Fatalf("retired = %v, want the two replaced children", tt.retired)
+	}
+	if len(tt.released) != 2 {
+		t.Fatalf("released = %d, want 2 after Rebuild", len(tt.released))
+	}
+	if got := tt.m.Len(); got != 3 {
+		t.Fatalf("Len = %d, want 3", got)
+	}
+}
+
+func TestTreeModelSetChildrenKeepsRedelivered(t *testing.T) {
+	tt := newTMTree()
+	root := tmNodes("r")[0]
+	tt.m.AddRoot(root)
+	kids := tt.deliver(root, "a", "b")
+	tt.m.SetChildren(root, kids[:1])
+	tt.m.Rebuild()
+	if len(tt.retired) != 1 || tt.retired[0] != kids[1] {
+		t.Fatalf("retired = %v, want only b", tt.retired)
+	}
+	if kids[0].Retired() {
+		t.Fatal("re-delivered node was retired")
+	}
+}
+
+func TestTreeModelRetireThenDropChildrenReportsOnce(t *testing.T) {
+	tt := newTMTree()
+	root := tmNodes("r")[0]
+	tt.m.AddRoot(root)
+	kids := tt.deliver(root, "a")
+	tt.m.Retire(kids[0])
+	tt.m.DropChildren(root)
+	tt.m.Rebuild()
+	if len(tt.retired) != 1 || len(tt.released) != 1 {
+		t.Fatalf("retired=%d released=%d, want 1 each", len(tt.retired), len(tt.released))
+	}
+}

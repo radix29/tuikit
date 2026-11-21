@@ -410,11 +410,43 @@ func (d *FileDialog) confirmChoice() {
 	if name == "" {
 		return
 	}
+	fs := d.FileSystem()
 	path := name
-	if fs := d.FileSystem(); !fs.IsAbs(path) {
+	if !fs.IsAbs(path) {
 		path = fs.Join(d.dir, path)
 	}
+	// A typed or Tab-completed directory name navigates into it, like the path
+	// field and every standard file dialog, rather than being chosen as a file.
+	if name == ".." {
+		d.enterDir(fs.Parent(d.dir))
+		return
+	}
+	// A file name cannot end in a separator, so "src/" is a directory even when
+	// the probe finds nothing; loadDir surfaces the error in listErr.
+	if strings.HasSuffix(name, fs.Separator()) || strings.HasSuffix(name, "/") {
+		d.enterDir(path)
+		return
+	}
+	if e, ok := d.entryFor(path); ok {
+		if e.IsDir {
+			d.enterDir(path)
+			return
+		}
+	} else if _, isDir, err := fs.Exists(path); err == nil && isDir {
+		// A failed probe is not "a directory": go on to finish, so a remote
+		// host that cannot answer is not blocked.
+		d.enterDir(path)
+		return
+	}
 	d.finish(path)
+}
+
+// enterDir lists dir from the name field's Enter, focuses the list and clears
+// the name field so the directory's name does not become the next file's.
+func (d *FileDialog) enterDir(dir string) {
+	d.loadDir(dir)
+	d.nameField.SetValue("")
+	d.setFocus(ffList)
 }
 
 // finish is the common tail of every "the user picked path" route: in Save mode

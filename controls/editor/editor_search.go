@@ -176,6 +176,15 @@ func (s *editorSearch) scopeAfterReplace(m searchMatch, replLen int, ver uint64)
 	s.scopeVer = ver
 }
 
+// SetReplacement changes the active search's Replace text and nothing else: the
+// compiled pattern, match list, current match and InSelection scope all stay,
+// unlike SetSearch. A no-op when no search is active.
+func (e *Editor) SetReplacement(s string) {
+	if e.search.re != nil {
+		e.search.opts.Replace = s
+	}
+}
+
 // ClearSearch drops the active search, its match list and its highlighting.
 func (e *Editor) ClearSearch() { e.search = editorSearch{} }
 
