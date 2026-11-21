@@ -382,3 +382,63 @@ func TestTreeModelRetireThenDropChildrenReportsOnce(t *testing.T) {
 		t.Fatalf("retired=%d released=%d, want 1 each", len(tt.retired), len(tt.released))
 	}
 }
+
+func TestTreeModelSetChildrenRedeliveryKeepsIDs(t *testing.T) {
+	tr := newTMTree()
+	r, kids := tr.root()
+	tr.m.Select(kids[1])
+	id, n := kids[1].ID(), tr.m.Len()
+	tr.selects, tr.reselects = nil, nil
+
+	tr.m.SetChildren(r, slices.Clone(kids))
+	tr.m.Rebuild()
+	if tr.m.Len() != n {
+		t.Fatalf("Len = %d after re-delivery, want %d", tr.m.Len(), n)
+	}
+	if kids[1].ID() != id {
+		t.Fatalf("ID = %d after re-delivery, want %d", kids[1].ID(), id)
+	}
+	if got, ok := tr.m.ByID(id); !ok || got != kids[1] {
+		t.Fatalf("ByID(%d) = %v, %v", id, got, ok)
+	}
+	if tr.selected(t) != kids[1] {
+		t.Fatal("selection moved")
+	}
+}
+
+func TestTreeModelSetChildrenInsertAboveKeepsSelection(t *testing.T) {
+	tr := newTMTree()
+	r, kids := tr.root()
+	tr.m.Select(kids[1])
+	tr.selects, tr.reselects = nil, nil
+
+	x := &tmNode{name: "x"}
+	tr.m.SetChildren(r, []*tmNode{x, kids[0], kids[1], kids[2]})
+	tr.m.Rebuild()
+	if tr.selected(t) != kids[1] {
+		t.Fatalf("selection on %q, want b", tr.selected(t).name)
+	}
+	if len(tr.selects) != 0 || len(tr.reselects) != 0 {
+		t.Fatalf("selects=%v reselects=%v, want none", tr.selects, tr.reselects)
+	}
+}
+
+func TestTreeModelSetChildrenUnretiresRedeliveredNode(t *testing.T) {
+	tr := newTMTree()
+	r, kids := tr.root()
+	tr.m.DropChildren(r)
+	if !kids[0].Retired() {
+		t.Fatal("kid not retired by DropChildren")
+	}
+	tr.m.SetChildren(r, []*tmNode{kids[0]})
+	if kids[0].Retired() {
+		t.Fatal("re-delivered node still retired")
+	}
+	tr.m.Rebuild()
+	if got, ok := tr.m.ByID(kids[0].ID()); !ok || got != kids[0] {
+		t.Fatal("re-delivered node released by Rebuild")
+	}
+	if slices.Contains(tr.released, kids[0]) {
+		t.Fatal("re-delivered node reported released")
+	}
+}

@@ -272,11 +272,33 @@ func (m *TreeModel[N]) Collapse(n N) {
 	m.Rebuild()
 }
 
-// SetChildren installs n's loaded children, registering each, and marks n
+// revive makes a delivered child live: an unregistered one is registered, a
+// registered one keeps its ID (a node keeps its ID for life, so a selection on
+// it survives a re-delivery), and a retired one, kept by the host from a
+// dropped subtree, is un-retired with its own retired descendants so the next
+// Rebuild doesn't release a live node. OnRetire already fired for it: a host
+// that cancelled loads there must restart them.
+func (m *TreeModel[N]) revive(c N) {
+	it := c.Item()
+	if it.id == 0 || m.byID[it.id] != c {
+		m.Register(c)
+	}
+	if !it.retired {
+		return
+	}
+	it.retired = false
+	m.retired = slices.DeleteFunc(m.retired, func(r N) bool { return r == c })
+	for _, gc := range it.Children {
+		m.revive(gc)
+	}
+}
+
+// SetChildren installs n's loaded children, registering each one not already
+// registered (a node keeps its ID for life), and marks n
 // Loaded; the caller rebuilds. It replaces, it does not add: any children n
 // already has are dropped with their subtrees (DropChildren: OnRetire, then
 // OnRelease at the next Rebuild), except nodes also in children, which a host
-// may re-deliver. It reports false, installing nothing, for a retired n: its
+// may re-deliver (a retired one is un-retired). It reports false, installing nothing, for a retired n: its
 // children would be registered under a parent no longer in the tree, and never
 // released.
 func (m *TreeModel[N]) SetChildren(n N, children []N) bool {
@@ -288,7 +310,7 @@ func (m *TreeModel[N]) SetChildren(n N, children []N) bool {
 		m.dropExcept(n, children)
 	}
 	for _, c := range children {
-		m.Register(c)
+		m.revive(c)
 		c.Item().Parent = n
 	}
 	it.Children = children

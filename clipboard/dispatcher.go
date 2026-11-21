@@ -69,8 +69,14 @@ type Dispatcher struct {
 	// writeMu runs Copy's goroutines one at a time, and writeSeq numbers them,
 	// so of two quick copies the later one is what the clipboard ends up
 	// holding. See Copy.
-	writeMu  sync.Mutex
-	writeSeq atomic.Uint64
+	//
+	// doneSeq is the highest Copy number whose goroutine has finished (written
+	// or skipped), guarded by writeMu; writeDone is signalled on each finish.
+	// Paste waits on it so a read never overtakes a Copy issued before it.
+	writeMu   sync.Mutex
+	writeSeq  atomic.Uint64
+	doneSeq   uint64
+	writeDone *sync.Cond
 
 	// bracket is a terminal bracketed paste in progress (see HandleEvent).
 	bracket PasteBuffer
@@ -87,6 +93,15 @@ func (d *Dispatcher) goroutine(what string, fn func()) {
 		return
 	}
 	go fn()
+}
+
+// done returns the condition variable on writeMu, created on first use (every
+// caller is on the UI goroutine, so the lazy init needs no lock).
+func (d *Dispatcher) done() *sync.Cond {
+	if d.writeDone == nil {
+		d.writeDone = sync.NewCond(&d.writeMu)
+	}
+	return d.writeDone
 }
 
 func (d *Dispatcher) token() any {
@@ -112,9 +127,16 @@ func (d *Dispatcher) Copy(text string) {
 	if write == nil {
 		write = Write
 	}
+	cond := d.done()
 	d.goroutine("writing to the clipboard", func() {
 		d.writeMu.Lock()
-		defer d.writeMu.Unlock()
+		defer func() {
+			// Superseded copies count too: a Paste issued after them must
+			// not wait on a write that will never happen.
+			d.doneSeq = max(d.doneSeq, seq)
+			cond.Broadcast()
+			d.writeMu.Unlock()
+		}()
 		if d.writeSeq.Load() != seq {
 			return
 		}
@@ -141,7 +163,8 @@ func (d *Dispatcher) Copies() uint64 { return d.writeSeq.Load() }
 
 // Paste runs a Ctrl+V: it resolves the target and token now, reads the native
 // clipboard on a background goroutine, and applies the text on the UI
-// goroutine through Deliver. With no native tool it asks the terminal
+// goroutine through Deliver. The read waits for every earlier Copy to finish
+// writing. With no native tool it asks the terminal
 // (GetClipboard), whose reply arrives as an *tcell.EventClipboard for
 // HandleEvent. Nothing happens when Resolve names no target.
 func (d *Dispatcher) Paste() {
@@ -154,7 +177,17 @@ func (d *Dispatcher) Paste() {
 	if read == nil {
 		read = Read
 	}
+	// Every Copy issued before this Ctrl+V must land first, or a slow
+	// native writer (xclip, wl-copy, clip.exe over ssh) lets us read the
+	// old contents. writeMu is not held across the read itself.
+	seq := d.writeSeq.Load()
+	cond := d.done()
 	d.goroutine("reading the clipboard", func() {
+		d.writeMu.Lock()
+		for d.doneSeq < seq {
+			cond.Wait()
+		}
+		d.writeMu.Unlock()
 		text, ok := read()
 		d.Post(func() {
 			if ok {
