@@ -3,6 +3,8 @@ package charts
 import (
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 )
 
 // Scale is a linear value range mapped onto a chart's plot area.
@@ -96,19 +98,27 @@ func FormatValue(v float64) string {
 	if v == 0 {
 		return "0.0"
 	}
+	if v < subMilli {
+		// Too small for any fixed-decimal band: two significant digits and a
+		// compact exponent keep a tiny-valued axis's ticks distinct.
+		m, e, _ := strings.Cut(fmt.Sprintf("%.1e", v), "e")
+		exp, _ := strconv.Atoi(e)
+		return fmt.Sprintf("%s%se%d", neg, m, exp)
+	}
 	for _, b := range valueBands {
 		scaled := v / b.div
 		p := math.Pow10(b.decimals)
 		r := math.Round(scaled*p) / p
 		if b.below == 0 || r < b.below {
-			if r == 0 {
-				return "0.0"
-			}
 			return neg + fmt.Sprintf("%.*f%s", b.decimals, r, b.unit)
 		}
 	}
 	panic("unreachable: the last value band is unbounded")
 }
+
+// subMilli is the bound under which FormatValue switches to exponent form: a
+// value below it would round to "0.000" in the three-decimal band.
+const subMilli = 0.0005
 
 // valueBands are FormatValue's formats, smallest first. below is the bound,
 // in scaled units, the rounded value must stay under (0: unbounded). A
@@ -120,6 +130,7 @@ var valueBands = [...]struct {
 	decimals int
 	unit     string
 }{
+	{1, 0.01, 3, ""},
 	{1, 1, 2, ""},
 	{1, 10, 1, ""},
 	{1, 1000, 0, ""},

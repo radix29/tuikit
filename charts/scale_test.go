@@ -107,6 +107,12 @@ func TestFormatValue(t *testing.T) {
 		{v: 999960, want: "1.0M"},
 		{v: 99.96e6, want: "100M"},
 		{v: 999.96e6, want: "1.0G"},
+		{v: 0.004, want: "0.004"},
+		{v: -0.004, want: "-0.004"},
+		{v: 0.00996, want: "0.01"},
+		{v: 0.00025, want: "2.5e-4"},
+		{v: -0.0001, want: "-1.0e-4"},
+		{v: 0.0007, want: "0.001"},
 		{v: -0.996, want: "-1.0"},
 		{v: -9.96, want: "-10"},
 		{v: -999.6, want: "-1.0K"},
@@ -126,12 +132,12 @@ func TestFormatValue(t *testing.T) {
 // just below to just above: no label may grow past five cells or read as
 // "1000…", the shapes a band chosen before rounding produced.
 func TestFormatValueStaysCompactAcrossBoundaries(t *testing.T) {
-	for _, bound := range []float64{1, 10, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11} {
+	for _, bound := range []float64{0.0005, 0.001, 0.01, 1, 10, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11} {
 		for step := -200; step <= 200; step++ {
 			v := bound * (1 + float64(step)*0.00005)
 			for _, x := range []float64{v, -v} {
 				got := strings.TrimPrefix(FormatValue(x), "-")
-				if len(got) > 5 || strings.HasPrefix(got, "1000") {
+				if (len(got) > 5 && !strings.Contains(got, "e")) || len(got) > 7 || strings.HasPrefix(got, "1000") {
 					t.Errorf("FormatValue(%v) = %q", x, FormatValue(x))
 				}
 			}
@@ -141,7 +147,8 @@ func TestFormatValueStaysCompactAcrossBoundaries(t *testing.T) {
 
 func TestFormatValueRoundedZeroDropsSign(t *testing.T) {
 	for v, want := range map[float64]string{
-		-0.0001: "0.0", -0.004: "0.0", -0.006: "-0.01", math.Copysign(0, -1): "0.0",
+		-0.0001: "-1.0e-4", -0.004: "-0.004", -0.006: "-0.006", math.Copysign(0, -1): "0.0",
+		-0.0000001: "-1.0e-7",
 	} {
 		if got := FormatValue(v); got != want {
 			t.Errorf("FormatValue(%v) = %q, want %q", v, got, want)
@@ -163,6 +170,19 @@ func TestFormatAgeSubSecond(t *testing.T) {
 	} {
 		if got := formatAge(c.d, c.span); got != c.want {
 			t.Errorf("formatAge(%v, %v) = %q, want %q", c.d, c.span, got, c.want)
+		}
+	}
+}
+
+func TestAutoScaleAxisLabelsAreDistinct(t *testing.T) {
+	for e := -6; e <= 6; e++ {
+		max := 4 * math.Pow10(e)
+		seen := map[string]bool{}
+		for _, v := range AutoScale(max).Ticks(5) {
+			seen[FormatValue(v)] = true
+		}
+		if len(seen) != 5 {
+			t.Errorf("max %v: ticks formatted to %d distinct labels, want 5: %v", max, len(seen), seen)
 		}
 	}
 }

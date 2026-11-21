@@ -32,12 +32,17 @@ func tabLabelText(p Panel) string {
 
 // PanelManager manages a stack of overlapping Panels displayed one at a time.
 // A tab bar at the top lets the user switch between panels; a drop-down combo
-// arrow shows when there are more tabs than fit.
+// arrow shows when there are more tabs than fit, and the strip scrolls to keep
+// the active tab visible.
 type PanelManager struct {
 	rect      core.Rect
 	panels    []Panel
 	active    int
 	comboOpen bool
+
+	// tabFirst is the first panel the tab strip shows; tabStrip moves it to keep
+	// the active tab on screen.
+	tabFirst int
 
 	// comboScroll is the drop-down's first visible row; the list is capped to the
 	// rows that fit below the tab bar.
@@ -45,7 +50,8 @@ type PanelManager struct {
 
 	// press separates a fresh Button1 press on the combo arrow or tab row from a
 	// resent hold (all-motion tracking), which would otherwise toggle the combo or
-	// fire OnCloseTab twice.
+	// fire OnCloseTab twice. It is the chrome's latch only: a Button1 event with
+	// button1Held set and press unheld belongs to the active panel's drag.
 	press core.PressLatch
 
 	// comboSbDragging latches a drag of the drop-down's scrollbar. Not
@@ -320,18 +326,53 @@ func (pm *PanelManager) scrollCombo(delta int) {
 	pm.comboScroll = core.Clamp(pm.comboScroll+delta, 0, pm.comboScrollMax(h))
 }
 
-// tabSegments computes each panel's tab layout: segment 0 the label, segment 1
-// the close glyph (zero-width if not closable). Draw and HandleMouse share it.
-func (pm *PanelManager) tabSegments() [][]core.TabSegment {
-	widths := make([][]int, len(pm.panels))
-	for i, panel := range pm.panels {
+// tabLayout lays the tabs out from panel first on: segment 0 the label, segment
+// 1 the close glyph (zero-width if not closable). It stops at the first tab that
+// does not fit, so segment i belongs to panel first+i.
+func (pm *PanelManager) tabLayout(first int) [][]core.TabSegment {
+	widths := make([][]int, 0, len(pm.panels)-first)
+	for _, panel := range pm.panels[first:] {
 		closeW := 0
 		if PanelClosable(panel) {
 			closeW = core.DisplayWidth(tabCloseGlyph)
 		}
-		widths[i] = []int{core.TabLabelWidth(tabLabelText(panel)), closeW}
+		widths = append(widths, []int{core.TabLabelWidth(tabLabelText(panel)), closeW})
 	}
 	return core.TabStripSegments(pm.rect.X+1, widths, pm.tabMaxX())
+}
+
+// tabStrip returns the index of the first panel the strip shows and the layout
+// from it (segment i is panel first+i). It first moves tabFirst so the active
+// tab is drawn, and no further than that: the strip follows the selection
+// rather than the other way round. Draw and HandleMouse share it, and since the
+// scroll is settled here a changed width, title or panel count needs no hook.
+func (pm *PanelManager) tabStrip() (int, [][]core.TabSegment) {
+	n := len(pm.panels)
+	if n == 0 {
+		pm.tabFirst = 0
+		return 0, nil
+	}
+	first := core.Clamp(pm.tabFirst, 0, n-1)
+	if pm.active >= 0 && pm.active < first {
+		first = pm.active
+	}
+	segs := pm.tabLayout(first)
+	for pm.active >= first+len(segs) && first < pm.active {
+		first++
+		segs = pm.tabLayout(first)
+	}
+	// Room to spare after the last tab (a widened bar, a removed panel): pull
+	// the strip back left rather than leave hidden tabs beside a gap.
+	for first > 0 {
+		prev := pm.tabLayout(first - 1)
+		if len(prev) != n-(first-1) {
+			break
+		}
+		first--
+		segs = prev
+	}
+	pm.tabFirst = first
+	return first, segs
 }
 
 // Draw renders the tab bar and the active panel.
@@ -342,7 +383,9 @@ func (pm *PanelManager) Draw(s tcell.Screen) {
 	if len(pm.panels) == 0 {
 		core.DrawText(s, pm.rect.X+1, pm.rect.Y, barStyle, pm.EmptyText)
 	} else {
-		for i, seg := range pm.tabSegments() {
+		first, segs := pm.tabStrip()
+		for k, seg := range segs {
+			i := first + k
 			panel := pm.panels[i]
 			tabStyle := barStyle
 			if i == pm.active {
@@ -446,6 +489,7 @@ func panelOverlayActive(p Panel) bool {
 // HandleMouse routes mouse events to the tab bar or active panel.
 func (pm *PanelManager) HandleMouse(ev *tcell.EventMouse) bool {
 	mx, my := ev.Position()
+	wasHeld := pm.button1Held
 
 	// Releases can land outside our bounds (e.g. a splitter drag inside the active
 	// panel), so always forward them to end drags cleanly.
@@ -464,6 +508,11 @@ func (pm *PanelManager) HandleMouse(ev *tcell.EventMouse) bool {
 	if ev.Buttons() == tcell.Button1 {
 		pm.button1Held = true
 	}
+	// A Button1 event with a press already down that the chrome's latch does
+	// not hold: the press began in a panel (or was stranded with one), so this
+	// is its drag, never a fresh press on the tab row, arrow or drop-down.
+	foreign := ev.Buttons() == tcell.Button1 && wasHeld && !pm.press.Held() &&
+		!pm.comboSbDragging
 
 	// The drop-down's scrollbar goes ahead of the bounds check (a latched drag owns
 	// the mouse until release) and of the list hit-test (the bar occupies the
@@ -474,6 +523,19 @@ func (pm *PanelManager) HandleMouse(ev *tcell.EventMouse) bool {
 			len(pm.panels), &pm.comboSbDragging, &pm.comboScroll) {
 			return true
 		}
+	}
+
+	// The panel that took the press keeps its drag wherever it goes, so a
+	// selection drag can leave our rect or cross the tab row and still
+	// auto-scroll. A stranded panel owns it instead; the new one never saw it begin.
+	if foreign {
+		if pm.stranded != nil {
+			return true
+		}
+		if p := pm.ActivePanel(); p != nil {
+			return p.HandleMouse(ev)
+		}
+		return false
 	}
 
 	// The active panel's overlay gets first refusal wherever the event lands:
@@ -519,13 +581,15 @@ func (pm *PanelManager) HandleMouse(ev *tcell.EventMouse) bool {
 		}
 	}
 
-	// Tab row click; segments come from tabSegments, as in Draw.
+	// Tab row click; segments come from tabStrip, as in Draw.
 	if my == pm.rect.Y && ev.Buttons() == tcell.Button1 {
 		if !pm.press.Fresh(ev) {
 			// Same physical press; don't re-fire OnCloseTab (it may prompt to save).
 			return true
 		}
-		for i, seg := range pm.tabSegments() {
+		first, segs := pm.tabStrip()
+		for k, seg := range segs {
+			i := first + k
 			closeSeg := seg[1]
 			if closeSeg.W > 0 && mx >= closeSeg.X && mx < closeSeg.X+closeSeg.W {
 				if pm.OnCloseTab != nil {
