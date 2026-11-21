@@ -1102,3 +1102,29 @@ func TestLeftJumpsToParent(t *testing.T) {
 		t.Error("'-' on a collapsed node returned true; '-' only collapses")
 	}
 }
+
+// TestTreeViewPageKeysMoveOneRowInTinyPane pins that a page is at least one
+// row: Inner(1).H is H-2, so at H=2, H=0 or before the first SetBounds it is
+// <= 0 and PgDn/PgUp must not stall or move the wrong way.
+func TestTreeViewPageKeysMoveOneRowInTinyPane(t *testing.T) {
+	for _, h := range []int{2, 0, -1} {
+		tv := NewTreeView()
+		nodes := make([]TreeNode, 10)
+		for i := range nodes {
+			nodes[i] = TreeNode{ID: i + 1, Label: "n"}
+		}
+		tv.SetNodes(nodes)
+		if h >= 0 {
+			tv.SetBounds(0, 0, 40, h)
+		}
+		tv.sel = 5
+		tv.HandleKey(tcell.NewEventKey(tcell.KeyPgDn, "", tcell.ModNone))
+		if tv.sel != 6 {
+			t.Fatalf("H=%d: PgDn sel = %d, want 6", h, tv.sel)
+		}
+		tv.HandleKey(tcell.NewEventKey(tcell.KeyPgUp, "", tcell.ModNone))
+		if tv.sel != 5 {
+			t.Fatalf("H=%d: PgUp sel = %d, want 5", h, tv.sel)
+		}
+	}
+}

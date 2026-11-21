@@ -391,9 +391,9 @@ func (tv *TreeView) HandleKey(ev *tcell.EventKey) bool {
 	case tcell.KeyDown:
 		return tv.moveTo(tv.sel+1, inner.H)
 	case tcell.KeyPgUp:
-		return tv.moveTo(tv.sel-inner.H, inner.H)
+		return tv.moveTo(tv.sel-max(1, inner.H), inner.H) // a page is at least one row
 	case tcell.KeyPgDn:
-		return tv.moveTo(tv.sel+inner.H, inner.H)
+		return tv.moveTo(tv.sel+max(1, inner.H), inner.H)
 	case tcell.KeyHome:
 		return tv.moveTo(0, inner.H)
 	case tcell.KeyEnd:

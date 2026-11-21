@@ -155,9 +155,9 @@ func (l *ListBox) HandleKey(ev *tcell.EventKey) bool {
 	case tcell.KeyDown:
 		l.sel = min(len(l.items)-1, l.sel+1)
 	case tcell.KeyPgUp:
-		l.sel = max(0, l.sel-l.rect.H)
+		l.sel = max(0, l.sel-max(1, l.rect.H))
 	case tcell.KeyPgDn:
-		l.sel = min(len(l.items)-1, l.sel+l.rect.H)
+		l.sel = min(len(l.items)-1, l.sel+max(1, l.rect.H))
 	case tcell.KeyHome:
 		l.sel, l.scroll = 0, 0
 	case tcell.KeyEnd:

@@ -559,13 +559,44 @@ func ParseFormattedNumber(s string) (float64, bool) {
 		s = s[:i]
 	}
 	s = strings.TrimSuffix(s, "%")
-	s = strings.ReplaceAll(s, ",", "")
-	if s == "" || !strings.ContainsAny(s[:1], "0123456789+-.") ||
+	// After an optional sign the next byte must be a digit or ".": that rejects
+	// every symbolic form ParseFloat reads ("+Inf", "-infinity", "NaN").
+	body := strings.TrimLeft(s[:min(len(s), 1)], "+-") + s[min(len(s), 1):]
+	if body == "" || !strings.ContainsAny(body[:1], "0123456789.") ||
 		strings.ContainsAny(s, "xXpP_") {
 		return 0, false
 	}
+	if strings.Contains(body, ",") {
+		// Grouping is only what FormatThousands writes: 1-3 digits, then
+		// ",ddd" groups, in the integer part. "1,2,3", "1,,2", "1,5" are text.
+		ip, frac, _ := strings.Cut(body, ".")
+		if strings.Contains(frac, ",") || !validGrouping(ip) {
+			return 0, false
+		}
+		s = strings.ReplaceAll(s, ",", "")
+	}
 	n, err := strconv.ParseFloat(s, 64)
 	return n * scale, err == nil
+}
+
+// validGrouping reports whether ip is 1-3 digits followed by one or more ",ddd"
+// groups.
+func validGrouping(ip string) bool {
+	parts := strings.Split(ip, ",")
+	if len(parts) < 2 || len(parts[0]) < 1 || len(parts[0]) > 3 {
+		return false
+	}
+	for i, p := range parts {
+		if i > 0 && len(p) != 3 {
+			return false
+		}
+		for j := 0; j < len(p); j++ {
+			if p[j] < '0' || p[j] > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // byteUnitScale is the factor to bytes of each binary unit FormatBytes writes.
