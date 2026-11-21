@@ -185,3 +185,50 @@ func TestFieldRingClipboard(t *testing.T) {
 		t.Error("right-click on a disabled field took focus")
 	}
 }
+
+func TestFieldRingRefusesDisabledButton(t *testing.T) {
+	d := newFieldRingRig(t)
+	d.disabled = []bool{false, true, false} // the default (OK) is greyed
+
+	d.ring.Key(key(tcell.KeyEnter)) // Enter in a field
+	if len(d.pressed) != 0 {
+		t.Errorf("Enter in a field pressed %v, want nothing (default is disabled)", d.pressed)
+	}
+
+	d.ring.SetFocus(2)
+	d.ring.Key(key(tcell.KeyTab)) // onto the row
+	if !d.ring.OnButtons() || d.ring.BtnFocus != 2 {
+		t.Errorf("entering the row: btn %d, want 2 (nearest enabled after the default)", d.ring.BtnFocus)
+	}
+	d.ring.BtnFocus = 1
+	d.ring.Key(key(tcell.KeyEnter))
+	if len(d.pressed) != 0 {
+		t.Errorf("Enter on a disabled button pressed %v, want nothing", d.pressed)
+	}
+
+	x := d.ButtonRowStartX(fieldRingButtons) + len(fieldRingButtons[0]) + 4 + 2
+	d.ring.Mouse(tcell.NewEventMouse(x, d.ButtonRowY(), tcell.Button1, tcell.ModNone), &d.ModalDialog)
+	if len(d.pressed) != 0 {
+		t.Errorf("click on a disabled button pressed %v, want nothing", d.pressed)
+	}
+}
+
+func TestButtonRowKeysRefuseDisabledEnter(t *testing.T) {
+	disabled := []bool{false, true}
+	for name, run := range map[string]func(fire func()){
+		"ButtonRowKey": func(fire func()) {
+			f := 1
+			ButtonRowKey(key(tcell.KeyEnter), &f, 2, disabled, fire, func() {}, func(int) {})
+		},
+		"ButtonsKey": func(fire func()) {
+			f := 1
+			ButtonsKey(key(tcell.KeyEnter), &f, 2, disabled, fire, func() {})
+		},
+	} {
+		fired := false
+		run(func() { fired = true })
+		if fired {
+			t.Errorf("%s fired a disabled focused button", name)
+		}
+	}
+}

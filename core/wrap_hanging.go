@@ -1,6 +1,10 @@
 package core
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/clipperhouse/displaywidth"
+)
 
 // WrapHanging wraps each line wider than w columns at a space, keeping the
 // line's own spacing — WrapText collapses whitespace runs, which would scramble
@@ -42,19 +46,25 @@ func WrapHanging(lines []string, w int) (rows []string, src []int) {
 // always makes progress), or mid-word when no such space exists. The head is
 // right-trimmed and the rest left-trimmed of spaces.
 func splitHanging(line string, w, hang int) (head, rest string) {
-	cut, col := -1, 0
-	for i, r := range line {
-		rw := DisplayWidth(string(r))
-		if col+rw > w {
+	cut, col, pos := -1, 0, 0
+	for g := displaywidth.StringGraphemes(line); g.Next(); {
+		v, gw := g.Value(), g.Width()
+		if col+gw > w {
 			if cut < 0 {
-				cut = i
+				// No space to break at: cut before the overflowing cluster, or
+				// after it when it is the first (so the loop always progresses).
+				cut = pos
+				if pos == 0 {
+					cut = len(v)
+				}
 			}
 			break
 		}
-		if r == ' ' && col > hang {
-			cut = i
+		if v == " " && col > hang {
+			cut = pos
 		}
-		col += rw
+		col += gw
+		pos += len(v)
 	}
 	if cut <= 0 {
 		cut = len(line)

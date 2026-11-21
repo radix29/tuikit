@@ -55,12 +55,10 @@ var monkeyButtons = []tcell.ButtonMask{
 	tcell.WheelUp, tcell.WheelDown, tcell.WheelLeft, tcell.WheelRight,
 }
 
-// monkeySearches never put a line break in Replace: replaceMatch inserts a
-// multi-line replacement as runes into one row, leaving a raw '\n' inside a
-// document line — open for a decision (split it into rows, or refuse it in
-// SetSearch), and not what this test is after.
 var monkeySearches = []SearchOptions{
 	{Query: "a", Replace: "AA"},
+	{Query: "e", Replace: "E\nE"},
+	{Query: "x", Replace: "p\nq\nr", InSelection: true},
 	{Query: "e", Replace: "", MatchCase: true},
 	{Query: "where", Replace: "WHERE", WholeWord: true},
 	{Query: `\s+`, Replace: " ", Regexp: true},

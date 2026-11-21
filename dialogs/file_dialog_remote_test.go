@@ -601,3 +601,45 @@ func TestFileDialogDrawsTheLargestPossibleFileSize(t *testing.T) {
 	}
 	t.Fatal("no row for sparse.bak")
 }
+
+// ".." never climbs above a UNC share root: Clean stops at `\\server\share`,
+// so `\\srv\share\..\..\x` stays inside the share instead of becoming `\\x`.
+func TestWindowsCleanKeepsUNCShareRoot(t *testing.T) {
+	var w WindowsPathRules
+	for in, want := range map[string]string{
+		`\\srv\share\..`:        `\\srv\share`,
+		`\\srv\share\..\..\x`:   `\\srv\share\x`,
+		`\\srv\share\a\..`:      `\\srv\share`,
+		`\\srv\share\a\..\..\b`: `\\srv\share\b`,
+		`C:\..`:                 `C:\`,
+		`\foo`:                  `\foo`,
+		`\foo\..`:               `\`,
+	} {
+		if got := w.Clean(in); got != want {
+			t.Errorf("Clean(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if !w.IsAbs(`\foo`) {
+		t.Error(`IsAbs(\foo) = false, want a rooted path accepted`)
+	}
+	if got := w.Parent(`\\srv\share`); got != "" {
+		t.Errorf("Parent(share root) = %q, want the drive list", got)
+	}
+}
+
+// A typed ".." at a share root lands where the ".." row does (the drive list),
+// not on the unlistable `\\srv`.
+func TestTypedDotDotAtUNCShareRootMatchesTheRow(t *testing.T) {
+	fs := newFakeWindowsFS()
+	fs.tree[`\\srv\share`] = []FileEntry{{Name: "a", IsDir: true}}
+	d := NewFileDialog()
+	d.ShowOpenOn(fs, "Open", `\\srv\share\`, nil)
+	if d.dir != `\\srv\share` {
+		t.Fatalf("dir = %q, want the share root", d.dir)
+	}
+	d.pathField.SetValue("..")
+	d.navigateTyped()
+	if d.dir != "" {
+		t.Errorf("typed .. -> dir %q, want the drive list", d.dir)
+	}
+}

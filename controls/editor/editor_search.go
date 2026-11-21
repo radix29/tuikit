@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"regexp/syntax"
 	"slices"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/radix29/tuikit/core"
@@ -151,22 +152,29 @@ func (e *Editor) syncScope() {
 	}
 }
 
-// scopeAfterReplace moves an InSelection scope's columns for replaceMatch's
-// rewrite of m to replLen runes, which syncScope can't do: it sees only that the
-// row changed. A column at or past the match's end moves with the text after it.
-// The caller has synced the scope to the version before the rewrite.
-func (s *editorSearch) scopeAfterReplace(m searchMatch, replLen int, ver uint64) {
+// scopeAfterReplace moves an InSelection scope for replaceMatch's rewrite of m,
+// which syncScope can't do: it sees only that the row changed. extraRows is how
+// many rows the replacement added (a line break in it splits the row) and lastLen
+// the width in runes of its last row. A position at or past the match's end moves
+// with the text after it, which now starts lastLen runes into the last new row
+// (after startCol too, when no row was added); rows below shift by extraRows. The
+// caller has synced the scope to the version before the rewrite.
+func (s *editorSearch) scopeAfterReplace(m searchMatch, extraRows, lastLen int, ver uint64) {
 	if !s.selValid {
 		return
 	}
-	d := replLen - (m.endCol - m.startCol)
+	newEnd := lastLen
+	if extraRows == 0 {
+		newEnd += m.startCol
+	}
 	for _, p := range []struct{ row, col *int }{{&s.selStartRow, &s.selStartCol}, {&s.selEndRow, &s.selEndCol}} {
-		if *p.row != m.row {
-			continue
-		}
 		switch {
+		case *p.row > m.row:
+			*p.row += extraRows
+		case *p.row < m.row:
 		case *p.col >= m.endCol:
-			*p.col += d
+			*p.row += extraRows
+			*p.col += newEnd - m.endCol
 		case *p.col > m.startCol:
 			// Inside the replaced text: no position in the new text corresponds.
 			s.selValid = false
@@ -174,6 +182,15 @@ func (s *editorSearch) scopeAfterReplace(m searchMatch, replLen int, ver uint64)
 		}
 	}
 	s.scopeVer = ver
+}
+
+// SetReplacement changes the active search's Replace text and nothing else: the
+// compiled pattern, match list, current match and InSelection scope all stay,
+// unlike SetSearch. A no-op when no search is active.
+func (e *Editor) SetReplacement(s string) {
+	if e.search.re != nil {
+		e.search.opts.Replace = s
+	}
 }
 
 // ClearSearch drops the active search, its match list and its highlighting.
@@ -621,8 +638,8 @@ func (e *Editor) ReplaceCurrent() bool {
 	if !ok {
 		return false
 	}
-	// replaceMatch rewrites one line and never changes the line count, so the step is
-	// that one row: Replace/F3 down a large script is a held key.
+	// The step is that one row (a replacement with line breaks grows the span from
+	// inside, as undo allows): Replace/F3 down a large script is a held key.
 	e.pushUndoSpan(m.row, m.row+1)
 	e.replaceMatch(m, repl)
 	e.FindNext(1)
@@ -671,25 +688,44 @@ func (s *editorSearch) replacementFor(m searchMatch, line lineSubmatches) (repl 
 	return "", false
 }
 
-// replaceMatch substitutes repl for m's text in place. The caller owns the undo
-// step: ReplaceAll pushes one for the whole run, so this must not push its own or
-// Replace All would take one Ctrl+Z per occurrence.
+// replaceMatch substitutes repl for m's text in place. A line break in repl
+// (\n, \r\n or \r) splits the row, as typing Enter would: the first piece joins the
+// row's head, the last its tail, and the pieces between become rows of their own.
+// The caller owns the undo step, whose span must cover m's row: ReplaceAll pushes
+// one for the whole run, so this must not push its own or Replace All would take
+// one Ctrl+Z per occurrence.
 func (e *Editor) replaceMatch(m searchMatch, repl string) {
 	line := e.doc.Line(m.row)
-	replRunes := []rune(e.expandTabs(repl))
+	pieces := strings.Split(lineBreaks.Replace(e.expandTabs(repl)), "\n")
+	head, tail := line[:m.startCol], line[m.endCol:]
 
-	updated := make([]rune, 0, len(line)-(m.endCol-m.startCol)+len(replRunes))
-	updated = append(updated, line[:m.startCol]...)
-	updated = append(updated, replRunes...)
-	updated = append(updated, line[m.endCol:]...)
+	rows := make([][]rune, len(pieces))
+	for i, p := range pieces {
+		rows[i] = []rune(p)
+	}
+	last := len(rows) - 1
+	lastLen := len(rows[last])
+	rows[0] = slices.Concat(head, rows[0])
+	rows[last] = slices.Concat(rows[last], tail)
+
 	e.syncScope()
-	e.doc.setLine(m.row, updated)
-	e.search.scopeAfterReplace(m, len(replRunes), e.doc.Version())
+	if last == 0 {
+		e.doc.setLine(m.row, rows[0])
+	} else {
+		e.doc.replaceRange(m.row, 1, rows)
+	}
+	e.search.scopeAfterReplace(m, last, lastLen, e.doc.Version())
 
 	e.selecting = false
-	e.cursorRow, e.cursorCol = m.row, m.startCol+len(replRunes)
+	e.cursorRow, e.cursorCol = m.row+last, lastLen
+	if last == 0 {
+		e.cursorCol += m.startCol
+	}
 	e.clampCursor()
 }
+
+// lineBreaks folds every line-break convention to \n.
+var lineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n")
 
 // ReplaceAll replaces every match in the document (under InSelection with a
 // selection active at SetSearch time, every match inside it) and returns how many
@@ -724,7 +760,8 @@ func (e *Editor) ReplaceAll() int {
 		return 0
 	}
 	// targets is sorted by row (scanMatches' order, filtered), and replaceMatch
-	// rewrites only its own row.
+	// rewrites only its own row, adding rows below it at most, which the
+	// right-to-left walk never revisits.
 	e.pushUndoSpan(targets[0].row, targets[len(targets)-1].row+1)
 	for i, target := range slices.Backward(targets) {
 		e.replaceMatch(target, repls[i])

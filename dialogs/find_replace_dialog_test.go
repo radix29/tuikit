@@ -375,3 +375,41 @@ func TestFindDialogClipboardTargetIsTheFocusedField(t *testing.T) {
 		t.Fatalf("FocusedClipboardTarget = %v on a checkbox, want nil", got)
 	}
 }
+
+func TestFindDialogReplaceAfterEditingReplacementHitsSelectedMatch(t *testing.T) {
+	d, e := newFindTest(t, "aa aa aa")
+	d.ShowReplace(e)
+	d.fFind.SetValue("aa")
+	d.fReplace.SetValue("X")
+	d.doFind(1) // selects the first "aa"
+	d.fReplace.SetValue("Y")
+	d.doReplace()
+	if got := e.Text(); got != "Y aa aa" {
+		t.Fatalf("text = %q, want the selected match replaced with the new text", got)
+	}
+}
+
+func TestFindDialogReplaceAllUsesEditedReplacement(t *testing.T) {
+	d, e := newFindTest(t, "aa aa")
+	d.ShowReplace(e)
+	d.fFind.SetValue("aa")
+	d.fReplace.SetValue("X")
+	d.doFind(1)
+	d.fReplace.SetValue("Z")
+	d.doReplaceAll()
+	if got := e.Text(); got != "Z Z" {
+		t.Fatalf("text = %q, want %q", got, "Z Z")
+	}
+}
+
+func TestFindDialogQueryChangeStillRecompiles(t *testing.T) {
+	d, e := newFindTest(t, "aa bb")
+	d.ShowReplace(e)
+	d.fFind.SetValue("aa")
+	d.doFind(1)
+	d.fFind.SetValue("bb")
+	if !d.optionsChanged() {
+		t.Fatal("a changed query must recompile")
+	}
+	_ = e
+}

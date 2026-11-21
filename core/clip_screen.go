@@ -39,15 +39,31 @@ func (c *ClipScreen) SetContent(x, y int, primary rune, combining []rune, style 
 	if !c.clip.Contains(x, y) {
 		return
 	}
+	// A wide glyph whose second half would land past the clip's right edge
+	// becomes a space, as Buffer.write does at the screen edge.
+	if x == c.clip.Right()-1 && RuneWidth(primary) == 2 {
+		primary, combining = ' ', nil
+	}
 	c.Screen.SetContent(x, y, primary, combining, style)
 }
 
-// Put writes the first grapheme of str only if (x,y) is inside the clip. It
-// reports the same remainder and width either way, so a caller advancing across
+// Put writes the first grapheme of str only if (x,y) is inside the clip. A
+// wide grapheme whose lead is the clip's last column is replaced by a space,
+// so its second half cannot overwrite the cell just outside (a dialog border).
+// It reports the same remainder and width either way, so a caller advancing across
 // a row (DimArea) steps over clipped cells rather than stalling.
 func (c *ClipScreen) Put(x, y int, str string, style tcell.Style) (string, int) {
 	if c.clip.Contains(x, y) {
-		return c.Screen.Put(x, y, str, style)
+		if x != c.clip.Right()-1 {
+			return c.Screen.Put(x, y, str, style)
+		}
+		head, rest := splitGrapheme(str, 1)
+		w := DisplayWidth(head)
+		if w < 2 {
+			return c.Screen.Put(x, y, str, style)
+		}
+		c.Screen.Put(x, y, " ", style)
+		return rest, w
 	}
 	head, rest := splitGrapheme(str, 1)
 	return rest, DisplayWidth(head)

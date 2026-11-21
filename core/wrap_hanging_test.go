@@ -74,3 +74,36 @@ func TestWrapHangingNoWidth(t *testing.T) {
 		t.Errorf("w=0: got %q %v, want the lines unchanged", got, src)
 	}
 }
+
+// Rows never cut inside a grapheme cluster: a ZWJ family measures 2 columns and
+// a skin-tone modifier stays with its base.
+func TestWrapHangingKeepsGraphemeClusters(t *testing.T) {
+	for _, tc := range []struct {
+		line string
+		w    int
+	}{
+		{"ab 👨\u200d👩\u200d👧 cdefgh", 5},
+		{"abcd👍🏽xyz", 6},
+	} {
+		rows, _ := WrapHanging([]string{tc.line}, tc.w)
+		for _, r := range rows {
+			if DisplayWidth(r) > tc.w {
+				t.Errorf("%q w=%d: row %q is wider", tc.line, tc.w, r)
+			}
+			if strings.HasPrefix(r, "🏽") || strings.HasPrefix(r, "👧") || strings.HasPrefix(r, "\u200d") {
+				t.Errorf("%q w=%d: row %q starts mid-cluster", tc.line, tc.w, r)
+			}
+		}
+		if got := strings.ReplaceAll(strings.Join(rows, ""), " ", ""); got != strings.ReplaceAll(tc.line, " ", "") {
+			t.Errorf("%q w=%d: rejoined %q lost text (rows %q)", tc.line, tc.w, got, rows)
+		}
+	}
+	// The family is one 2-column cluster, so "ab 👨\u200d👩\u200d👧" is 5 columns, not 9.
+	if DisplayWidth("ab 👨\u200d👩\u200d👧") != 5 {
+		t.Fatal("family should measure 2 columns")
+	}
+	rows, _ := WrapHanging([]string{"xy 👨\u200d👩\u200d👧"}, 5)
+	if len(rows) != 1 {
+		t.Errorf("a 5-column line wrapped at w=5: %q", rows)
+	}
+}

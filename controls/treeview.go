@@ -225,11 +225,13 @@ func (tv *TreeView) Focused() bool { return tv.active }
 // SetNodes replaces the entire visible node list, typically rebuilt in OnExpand
 // after loading children.
 //
-// The selection follows the selected node's ID, and its row keeps its screen line.
-// Keeping the index is wrong whenever rows are inserted or removed above the
-// selection (children arriving for a folder higher up): it silently moves onto a
-// different node, which every keyboard action then acts on. Only a gone ID falls
-// back to clamping the index. SetNodes never fires OnSelect, so a host that
+// The selection follows the selected node's ID, and its row keeps its screen line
+// unless that would leave blank rows below the last node while rows hide above (a
+// collapse near the bottom): then the view scrolls up to fill. Keeping the index is
+// wrong whenever rows are inserted or removed above the selection (children
+// arriving for a folder higher up): it silently moves onto a different node, which
+// every keyboard action then acts on. Only a gone ID falls back to clamping the
+// index. SetNodes never fires OnSelect, so a host that
 // replaces nodes resolves the selection itself (see SelectID).
 func (tv *TreeView) SetNodes(nodes []TreeNode) {
 	prevID, hadSel := 0, false
@@ -389,9 +391,9 @@ func (tv *TreeView) HandleKey(ev *tcell.EventKey) bool {
 	case tcell.KeyDown:
 		return tv.moveTo(tv.sel+1, inner.H)
 	case tcell.KeyPgUp:
-		return tv.moveTo(tv.sel-inner.H, inner.H)
+		return tv.moveTo(tv.sel-max(1, inner.H), inner.H) // a page is at least one row
 	case tcell.KeyPgDn:
-		return tv.moveTo(tv.sel+inner.H, inner.H)
+		return tv.moveTo(tv.sel+max(1, inner.H), inner.H)
 	case tcell.KeyHome:
 		return tv.moveTo(0, inner.H)
 	case tcell.KeyEnd:
@@ -759,6 +761,11 @@ func (tv *TreeView) ensureVisible(h int) {
 	if tv.sel >= tv.scroll+h {
 		tv.scroll = tv.sel - h + 1
 	}
+	// Never scroll past the last full page. SetNodes keeps the selection's screen
+	// line, and after a collapse that removes rows below the selection that left
+	// the bottom of the view blank while rows stayed hidden above (ListBox's rule).
+	// sel <= len-1, so the selection stays visible.
+	tv.scroll = min(tv.scroll, max(0, len(tv.nodes)-h))
 	// sel is -1 on an empty tree; a negative scroll would index nodes[-1] in Draw.
 	tv.scroll = max(0, tv.scroll)
 }

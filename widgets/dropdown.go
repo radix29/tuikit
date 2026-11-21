@@ -127,6 +127,11 @@ func (d *DropDown) Enabled() bool { return !d.disabled }
 // setOpen opens or closes the list. Opening scrolls the selection into view
 // (the wheel may have scrolled away, or the selection changed since).
 func (d *DropDown) setOpen(v bool) {
+	// An empty list has no rows to draw, so opening it would report an
+	// overlay (and swallow keys) with nothing visible.
+	if v && len(d.items) == 0 {
+		return
+	}
 	d.open = v
 	d.sbDragging = false
 	if v {

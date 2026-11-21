@@ -527,3 +527,48 @@ func TestInputFieldPasteStripsControlCharacters(t *testing.T) {
 		t.Fatalf("Paste of only control characters: value %q, %d OnChange, want unchanged and none", f.Value(), len(changes))
 	}
 }
+
+func TestInputFieldPasteSkipsLeadingBlankLines(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"\nfoo", "foo"},
+		{"\r\nfoo", "foo"},
+		{"\n\n", ""},
+		{"  \nfoo", "foo"},
+		{"foo\nbar", "foo"},
+		{"\n\n  bar \nbaz", "  bar "},
+	} {
+		f := NewInputField("", 40, false)
+		n := 0
+		f.OnChange = func(string) { n++ }
+		f.Paste(tc.in)
+		if f.Value() != tc.want {
+			t.Errorf("Paste(%q) = %q, want %q", tc.in, f.Value(), tc.want)
+		}
+		if wantN := map[bool]int{true: 1, false: 0}[tc.want != ""]; n != wantN {
+			t.Errorf("Paste(%q): OnChange fired %d times, want %d", tc.in, n, wantN)
+		}
+	}
+}
+
+func TestInputFieldPasteWhitespaceOnly(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{" ", " "},
+		{"   ", "   "},
+		{"\t", " "},
+		{"  \n x", " x"},
+		{"", ""},
+		{"\n", ""},
+	} {
+		f := NewInputField("", 40, false)
+		f.Paste(tc.in)
+		if f.Value() != tc.want {
+			t.Errorf("Paste(%q) = %q, want %q", tc.in, f.Value(), tc.want)
+		}
+	}
+	f := newTestInputField("abcdef")
+	f.HandleKey(tuikittest.Key(tcell.KeyCtrlA, tcell.ModNone))
+	f.Paste(" ")
+	if f.Value() != " " {
+		t.Errorf("whitespace paste over a selection = %q, want a single space", f.Value())
+	}
+}

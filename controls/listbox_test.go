@@ -296,3 +296,22 @@ func TestListBoxCancelMouseDragDropsTheLatches(t *testing.T) {
 		t.Fatalf("Selected() = %d after a press on row 2, want 2 — the cancelled press still latched", l.Selected())
 	}
 }
+
+// TestListBoxPageKeysMoveOneRowInTinyPane pins that a page is at least one row.
+func TestListBoxPageKeysMoveOneRowInTinyPane(t *testing.T) {
+	for _, h := range []int{0, 1} {
+		l := NewListBox()
+		l.SetBounds(0, 0, 20, h)
+		l.SetItems([]string{"a", "b", "c", "d", "e"})
+		l.Focus(true)
+		l.sel = 2
+		l.HandleKey(tcell.NewEventKey(tcell.KeyPgDn, "", tcell.ModNone))
+		if l.sel != 3 {
+			t.Fatalf("H=%d: PgDn sel = %d, want 3", h, l.sel)
+		}
+		l.HandleKey(tcell.NewEventKey(tcell.KeyPgUp, "", tcell.ModNone))
+		if l.sel != 2 {
+			t.Fatalf("H=%d: PgUp sel = %d, want 2", h, l.sel)
+		}
+	}
+}

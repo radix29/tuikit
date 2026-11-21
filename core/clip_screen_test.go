@@ -112,3 +112,47 @@ func TestClipScreenHidesCursorOutsideTheClip(t *testing.T) {
 		t.Errorf("cursor outside the clip = (%d,%d), want hidden", x, y)
 	}
 }
+
+// A wide grapheme whose lead is the clip's last column would spill its second
+// half onto the cell just outside (a dialog border); it becomes a space.
+func TestClipScreenWideGlyphAtClipEdgeBecomesSpace(t *testing.T) {
+	rec := dotted(20, 3)
+	cs := NewClipScreen(rec)
+	cs.SetClip(Rect{X: 0, Y: 0, W: 10, H: 3})
+	rec.SetContent(10, 0, '│', nil, tcell.StyleDefault)
+
+	DrawText(cs, 8, 0, tcell.StyleDefault, "a中文")
+
+	if got := rec.RuneAt(8, 0); got != 'a' {
+		t.Errorf("cell 8 = %q, want 'a'", got)
+	}
+	if got := rec.RuneAt(9, 0); got != ' ' {
+		t.Errorf("cell 9 = %q, want a space in place of the wide glyph", got)
+	}
+	if got := rec.RuneAt(10, 0); got != '│' {
+		t.Errorf("cell 10 = %q, want the border untouched", got)
+	}
+
+	// SetContent path.
+	cs.SetContent(9, 1, '中', nil, tcell.StyleDefault)
+	if got := rec.RuneAt(9, 1); got != ' ' {
+		t.Errorf("SetContent cell 9 = %q, want a space", got)
+	}
+}
+
+// The left-edge mirror: a lead left of the clip stays dropped and does not
+// touch the clip's first column.
+func TestClipScreenWideGlyphLeftOfClipStaysDropped(t *testing.T) {
+	rec := dotted(20, 3)
+	cs := NewClipScreen(rec)
+	cs.SetClip(Rect{X: 5, Y: 0, W: 5, H: 3})
+
+	DrawText(cs, 4, 0, tcell.StyleDefault, "中b")
+
+	if got := rec.RuneAt(4, 0); got != '.' {
+		t.Errorf("cell 4 = %q, want nothing drawn", got)
+	}
+	if got := rec.RuneAt(5, 0); got != '.' && got != 'b' {
+		t.Errorf("cell 5 = %q, want untouched or 'b'", got)
+	}
+}

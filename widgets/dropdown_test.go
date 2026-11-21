@@ -316,3 +316,32 @@ func TestDropDownLongValueEndsInAnEllipsisClearOfTheArrow(t *testing.T) {
 		t.Fatalf("row = %q, want the short value whole", got)
 	}
 }
+
+// TestDropDownEmptyListNeverOpens: with no items there is nothing to draw, so
+// Enter/F4/header click must not report an overlay or swallow later keys; the
+// open keypress itself is still consumed.
+func TestDropDownEmptyListNeverOpens(t *testing.T) {
+	d := newTestDropDown(nil)
+	d.SetBounds(0, 0)
+	for _, k := range []tcell.Key{tcell.KeyEnter, tcell.KeyF4} {
+		if !d.HandleKey(tuikittest.Key(k, tcell.ModNone)) {
+			t.Fatalf("HandleKey(%v) on empty list = false, want true", k)
+		}
+		if d.OverlayActive() {
+			t.Fatalf("HandleKey(%v) opened an empty list", k)
+		}
+		if d.HandleKey(tuikittest.Key(tcell.KeyDown, tcell.ModNone)) {
+			t.Fatal("Down consumed after Enter/F4 on an empty list")
+		}
+	}
+	d.HandleMouse(tuikittest.Mouse(3, 0, tcell.Button1))
+	d.HandleMouse(tuikittest.Mouse(3, 0, tcell.ButtonNone))
+	if d.OverlayActive() {
+		t.Fatal("header click opened an empty list")
+	}
+	d.SetItems([]string{"a", "b"})
+	d.HandleKey(tuikittest.Key(tcell.KeyEnter, tcell.ModNone))
+	if !d.OverlayActive() {
+		t.Fatal("Enter after SetItems did not open the list")
+	}
+}

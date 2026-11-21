@@ -283,3 +283,136 @@ func TestPanelManagerPressThatSwitchesPanelsStaysWithItsPanel(t *testing.T) {
 		t.Fatalf("new panel got %v, want its next press delivered", op.opened.mouse)
 	}
 }
+
+// tabLabelX finds an x on row 0 whose click switches to panel i, by sweeping
+// with release/press pairs on a throwaway manager laid out like pm.
+func tabLabelX(t *testing.T, mk func() *PanelManager, i int) int {
+	t.Helper()
+	for x := 0; x < 60; x++ {
+		pm := mk()
+		pm.HandleMouse(tcell.NewEventMouse(x, 0, tcell.Button1, tcell.ModNone))
+		if pm.ActiveIndex() == i {
+			return x
+		}
+	}
+	t.Fatalf("no x on the tab row switches to panel %d", i)
+	return -1
+}
+
+// TestPanelManagerDragFromContentOntoTabRowIsNotAClick: a press that began in
+// the active panel, dragged up over the tab row, is the panel's drag. It must
+// not switch tabs, close one, or toggle the drop-down; the panel keeps getting it.
+func TestPanelManagerDragFromContentOntoTabRowIsNotAClick(t *testing.T) {
+	a := &fakePanel{title: "a", closable: true}
+	mk := func() *PanelManager {
+		pm := NewPanelManager()
+		pm.AddPanel(&fakePanel{title: "a", closable: true})
+		pm.AddPanel(&fakePanel{title: "b", closable: true})
+		pm.SetBounds(0, 0, 80, 24)
+		return pm
+	}
+	bx := tabLabelX(t, mk, 1)
+
+	pm := NewPanelManager()
+	pm.AddPanel(a)
+	pm.AddPanel(&fakePanel{title: "b", closable: true})
+	pm.SetBounds(0, 0, 80, 24)
+	closed := -1
+	pm.OnCloseTab = func(i int) { closed = i }
+
+	b1 := func(x, y int) { pm.HandleMouse(tcell.NewEventMouse(x, y, tcell.Button1, tcell.ModNone)) }
+	b1(10, 5)
+	b1(bx, 0)   // over tab b
+	b1(2, 0)    // over tab a, possibly its [x]
+	b1(80-2, 0) // over the combo arrow
+	if pm.ActiveIndex() != 0 || closed != -1 || pm.comboOpen {
+		t.Fatalf("drag read as chrome click: active=%d closed=%d comboOpen=%v", pm.ActiveIndex(), closed, pm.comboOpen)
+	}
+	if len(a.mouse) != 4 {
+		t.Fatalf("panel got %d events, want all 4", len(a.mouse))
+	}
+
+	// Release, then a fresh press on b switches: the latch recovers.
+	pm.HandleMouse(tcell.NewEventMouse(bx, 0, tcell.ButtonNone, tcell.ModNone))
+	b1(bx, 0)
+	if pm.ActiveIndex() != 1 {
+		t.Fatalf("fresh press on tab b after release: active=%d, want 1", pm.ActiveIndex())
+	}
+}
+
+// tabStripFixture is 12 closable "Query N" panels in an 80-column manager.
+func tabStripFixture() *PanelManager {
+	pm := NewPanelManager()
+	for i := 1; i <= 12; i++ {
+		pm.AddPanel(&fakePanel{title: "Query " + string(rune('A'+i-1)), closable: true})
+	}
+	pm.SetBounds(0, 0, 80, 24)
+	return pm
+}
+
+// TestPanelManagerActiveTabStaysInStrip: the strip follows the active tab, so
+// the active panel always has a segment, a click on it keeps it active, and
+// moving back to 0 scrolls back.
+func TestPanelManagerActiveTabStaysInStrip(t *testing.T) {
+	pm := tabStripFixture()
+	if _, segs := pm.tabStrip(); len(segs) >= pm.Count() {
+		t.Fatalf("fixture too narrow to overflow: %d of %d tabs fit", len(segs), pm.Count())
+	}
+	for _, want := range []int{9, 11, 5, 0, 10} {
+		pm.SetActiveIndex(want)
+		first, segs := pm.tabStrip()
+		if want < first || want >= first+len(segs) {
+			t.Fatalf("active %d outside strip [%d,%d)", want, first, first+len(segs))
+		}
+		seg := segs[want-first][0]
+		pm.HandleMouse(tcell.NewEventMouse(seg.X, 0, tcell.ButtonNone, tcell.ModNone))
+		pm.HandleMouse(tcell.NewEventMouse(seg.X, 0, tcell.Button1, tcell.ModNone))
+		pm.HandleMouse(tcell.NewEventMouse(seg.X, 0, tcell.ButtonNone, tcell.ModNone))
+		if pm.ActiveIndex() != want {
+			t.Fatalf("click on active tab %d switched to %d", want, pm.ActiveIndex())
+		}
+	}
+	pm.SetActiveIndex(0)
+	if first, _ := pm.tabStrip(); first != 0 {
+		t.Fatalf("after returning to 0 the strip starts at %d", first)
+	}
+}
+
+// TestPanelManagerScrolledStripClosesRightTab: hit-testing indexes from the
+// strip's first panel, not from 0.
+func TestPanelManagerScrolledStripClosesRightTab(t *testing.T) {
+	pm := tabStripFixture()
+	pm.SetActiveIndex(9)
+	first, segs := pm.tabStrip()
+	if first == 0 {
+		t.Fatal("strip did not scroll")
+	}
+	closed := -1
+	pm.OnCloseTab = func(i int) { closed = i }
+	cs := segs[9-first][1]
+	pm.HandleMouse(tcell.NewEventMouse(cs.X, 0, tcell.Button1, tcell.ModNone))
+	if closed != 9 {
+		t.Fatalf("[x] of panel 9 closed %d", closed)
+	}
+}
+
+// TestPanelManagerStripFollowsRemoveAndResize: removing the active last tab
+// and narrowing the bar both keep the active tab drawn.
+func TestPanelManagerStripFollowsRemoveAndResize(t *testing.T) {
+	pm := tabStripFixture()
+	pm.SetActiveIndex(11)
+	pm.RemovePanel(11)
+	first, segs := pm.tabStrip()
+	if a := pm.ActiveIndex(); a != 10 || a < first || a >= first+len(segs) {
+		t.Fatalf("after remove: active %d, strip [%d,%d)", a, first, first+len(segs))
+	}
+	pm.SetBounds(0, 0, 40, 24)
+	first, segs = pm.tabStrip()
+	if a := pm.ActiveIndex(); a < first || a >= first+len(segs) {
+		t.Fatalf("after narrowing: active %d, strip [%d,%d)", a, first, first+len(segs))
+	}
+	pm.SetBounds(0, 0, 400, 24)
+	if first, segs = pm.tabStrip(); first != 0 || len(segs) != pm.Count() {
+		t.Fatalf("after widening: strip [%d,%d) of %d", first, first+len(segs), pm.Count())
+	}
+}

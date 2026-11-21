@@ -1,6 +1,7 @@
 package controls
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -177,6 +178,59 @@ func TestSetSourceReorderedFollowsTheRow(t *testing.T) {
 	g.SetSourceReordered([]string{"N", "V"}, PermutedSource{Src: base, Perm: short}, asc, short)
 	if row, _ := g.SelectedCell(); row != 2 {
 		t.Errorf("cursor row = %d after its row left, want 2 (index 3 clamped)", row)
+	}
+}
+
+// markForReorder Ctrl+clicks rows of g the way a mouse does: the mark, then
+// the cursor on the clicked row.
+func markForReorder(g *DataGrid, rows ...int) {
+	for _, r := range rows {
+		g.markRow(r)
+		g.selRow, g.selAnchorRow = r, r
+	}
+}
+
+// SetSourceReordered carries Ctrl+click marks to their rows' new indexes,
+// through an unsorted (nil) and a sorted old order, and drops a marked row the
+// new order no longer holds. A re-sort used to clear them, so Copy took only
+// the cursor row.
+func TestSetSourceReorderedKeepsMarks(t *testing.T) {
+	base := SliceRowSource{{"c"}, {"a"}, {"d"}, {"b"}}
+	g := newTestDataGrid()
+	g.SetSource([]string{"N"}, base)
+	g.SetSelectedCell(0, 0) // c
+	markForReorder(g, 1, 3) // a, b
+	if got := g.SelectedRows(); !slices.Equal(got, []int{0, 1, 3}) {
+		t.Fatalf("marked before = %v, want [0 1 3]", got)
+	}
+
+	asc := []int{1, 3, 0, 2} // a b c d
+	g.SetSourceReordered([]string{"N"}, PermutedSource{Src: base, Perm: asc}, nil, asc)
+	if got := g.SelectedRows(); !slices.Equal(got, []int{0, 1, 2}) {
+		t.Fatalf("marked after the first sort = %v, want [0 1 2] (a b c)", got)
+	}
+
+	desc := []int{2, 0, 3, 1} // d c b a
+	g.SetSourceReordered([]string{"N"}, PermutedSource{Src: base, Perm: desc}, asc, desc)
+	if got := g.SelectedRows(); !slices.Equal(got, []int{1, 2, 3}) {
+		t.Fatalf("marked after re-sorting = %v, want [1 2 3] (c b a)", got)
+	}
+
+	// b (underlying 3) leaves the new order: c and a stay marked.
+	short := []int{2, 0, 1} // d c a
+	g.SetSourceReordered([]string{"N"}, PermutedSource{Src: base, Perm: short}, desc, short)
+	if got := g.SelectedRows(); !slices.Equal(got, []int{1, 2}) {
+		t.Fatalf("marked after b left = %v, want [1 2] (c a)", got)
+	}
+
+	// Every marked row gone: no marks, the cursor row is the selection again.
+	g.SetSelectedCell(0, 0)
+	markForReorder(g, 0) // unmark the cursor row d ...
+	markForReorder(g, 2) // ... and mark a
+	only := []int{2}     // d
+	g.SetSourceReordered([]string{"N"}, PermutedSource{Src: base, Perm: only}, short, only)
+	if g.marking || g.SelectedRowCount() != 1 {
+		t.Errorf("marking=%v count=%d with every marked row gone, want no marks and the cursor row", g.marking, g.SelectedRowCount())
 	}
 }
 

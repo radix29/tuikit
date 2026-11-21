@@ -843,3 +843,21 @@ func TestFindAtCursorPrefersTheMatchContainingTheCaret(t *testing.T) {
 		t.Fatalf("selection = %d:%d-%d, want 0:2-4", sr, sc, ec)
 	}
 }
+
+func TestSetReplacementKeepsMatchState(t *testing.T) {
+	e := NewEditor(nil)
+	e.SetBounds(0, 0, 80, 24)
+	e.SetText("aa aa aa")
+	if err := e.SetSearch(SearchOptions{Query: "aa", Replace: "X"}); err != nil {
+		t.Fatal(err)
+	}
+	e.FindNext(1)
+	i0, n0 := e.MatchPosition()
+	e.SetReplacement("Y")
+	if i, n := e.MatchPosition(); i != i0 || n != n0 || e.SelectedText() != "aa" {
+		t.Fatalf("match state changed: %d/%d sel=%q", i, n, e.SelectedText())
+	}
+	if !e.ReplaceCurrent() || e.Text() != "Y aa aa" {
+		t.Fatalf("text = %q", e.Text())
+	}
+}

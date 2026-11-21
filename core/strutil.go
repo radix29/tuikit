@@ -105,7 +105,8 @@ func TruncateLeft(s string, n int) string {
 // TruncateLine is Truncate for a one-row rendering of text that may hold line
 // breaks or tabs (a grid cell). CR, LF, CRLF and TAB each render as one space:
 // they measure 0 columns, so otherwise the words either side run together. A
-// string without them is not copied.
+// string without them is not copied. A grapheme with no base (a lone combining mark)
+// directly after a mapped break is dropped, as it would merge into the space.
 func TruncateLine(s string, n int) string {
 	if n <= 0 {
 		return ""
@@ -114,14 +115,19 @@ func TruncateLine(s string, n int) string {
 	var buf []byte
 	budget := n - 1 // reserve one column for the ellipsis
 	var pos, cut, width int
-	haveCut := false
+	haveCut, afterBrk := false, false
 	g := displaywidth.StringGraphemes(s)
 	for g.Next() {
 		v, gw := g.Value(), g.Width()
 		brk := v == "\r\n" || v == "\n" || v == "\r" || v == "\t"
 		if brk {
 			gw = 1
+		} else if afterBrk && absorbsSpace(v, gw) {
+			// It would attach to the space the break became and change the
+			// width counted here; it has no base of its own to draw.
+			continue
 		}
+		afterBrk = brk
 		if !haveCut && width+gw > budget {
 			cut, haveCut = pos, true
 		}
@@ -271,6 +277,11 @@ func wrapLines(text string, w int) (lines []string, hardBreak []bool) {
 	// grapheme boundary, the only place splitGraphemeWidth cuts.
 	cur, curW := "", 0
 	for _, word := range words {
+		// A leading mark would join the separating space and break the carried
+		// widths.
+		if word = dropLeadingExtenders(word); word == "" {
+			continue
+		}
 		wordW := DisplayWidth(word)
 		if cur != "" {
 			if curW+1+wordW <= w {
@@ -298,6 +309,32 @@ func wrapLines(text string, w int) (lines []string, hardBreak []bool) {
 		lines, hardBreak = append(lines, cur), append(hardBreak, false)
 	}
 	return lines, hardBreak
+}
+
+// absorbsSpace reports whether grapheme g (of width gw) would merge into a
+// space written before it: a lone combining mark, variation selector or ZWJ
+// extends the space's cluster, so the pair measures other than 1+gw.
+func absorbsSpace(g string, gw int) bool {
+	if g == "" || g[0] < utf8.RuneSelf {
+		return false // ASCII always starts its own cluster
+	}
+	return DisplayWidth(" "+g) != 1+gw
+}
+
+// dropLeadingExtenders removes leading graphemes that would merge into a space
+// put in front of s (see absorbsSpace). They have no base to attach to, so they
+// draw nothing useful, and keeping them would break the width the callers have
+// measured: PadLeft, TruncateLine and WrapText join text to a space. Text not
+// starting with one is returned as is, without allocating.
+func dropLeadingExtenders(s string) string {
+	for s != "" {
+		g := displaywidth.StringGraphemes(s)
+		if !g.Next() || !absorbsSpace(g.Value(), g.Width()) {
+			break
+		}
+		s = s[len(g.Value()):]
+	}
+	return s
 }
 
 // splitGrapheme cuts s at the last grapheme boundary that keeps the head within
@@ -367,6 +404,11 @@ func padSpaces(s string, n int, left bool) string {
 	// UTF-8 can end mid-cluster; replacing it keeps "exactly n" true.
 	if !utf8.ValidString(s) {
 		s = strings.ToValidUTF8(s, "�")
+	}
+	if left {
+		// A leading lone mark would merge into the first space. Drop it
+		// before measuring: removing it can change how the rest segments.
+		s = dropLeadingExtenders(s)
 	}
 	w := DisplayWidth(s)
 	switch {
@@ -559,13 +601,44 @@ func ParseFormattedNumber(s string) (float64, bool) {
 		s = s[:i]
 	}
 	s = strings.TrimSuffix(s, "%")
-	s = strings.ReplaceAll(s, ",", "")
-	if s == "" || !strings.ContainsAny(s[:1], "0123456789+-.") ||
+	// After an optional sign the next byte must be a digit or ".": that rejects
+	// every symbolic form ParseFloat reads ("+Inf", "-infinity", "NaN").
+	body := strings.TrimLeft(s[:min(len(s), 1)], "+-") + s[min(len(s), 1):]
+	if body == "" || !strings.ContainsAny(body[:1], "0123456789.") ||
 		strings.ContainsAny(s, "xXpP_") {
 		return 0, false
 	}
+	if strings.Contains(body, ",") {
+		// Grouping is only what FormatThousands writes: 1-3 digits, then
+		// ",ddd" groups, in the integer part. "1,2,3", "1,,2", "1,5" are text.
+		ip, frac, _ := strings.Cut(body, ".")
+		if strings.Contains(frac, ",") || !validGrouping(ip) {
+			return 0, false
+		}
+		s = strings.ReplaceAll(s, ",", "")
+	}
 	n, err := strconv.ParseFloat(s, 64)
 	return n * scale, err == nil
+}
+
+// validGrouping reports whether ip is 1-3 digits followed by one or more ",ddd"
+// groups.
+func validGrouping(ip string) bool {
+	parts := strings.Split(ip, ",")
+	if len(parts) < 2 || len(parts[0]) < 1 || len(parts[0]) > 3 {
+		return false
+	}
+	for i, p := range parts {
+		if i > 0 && len(p) != 3 {
+			return false
+		}
+		for j := 0; j < len(p); j++ {
+			if p[j] < '0' || p[j] > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // byteUnitScale is the factor to bytes of each binary unit FormatBytes writes.
@@ -608,7 +681,7 @@ func EvText(ev interface{ Str() string }) []rune {
 // `\ / : * ? " < > |` and every control character becomes "_", the result is
 // cut to safeFileNameMax bytes on a rune boundary, trailing dots and spaces
 // (which Windows drops) are trimmed, a Windows device name (CON, NUL, COM1...,
-// reserved whatever extension follows) gets a "_" prefix, and an empty, "." or
+// CONIN$, CONOUT$, reserved whatever extension follows) gets a "_" prefix, and an empty, "." or
 // ".." result is "_". The Windows rules apply everywhere so a name minted on
 // Linux still opens on Windows.
 //
@@ -642,13 +715,14 @@ func SafeFileName(s string) string {
 const safeFileNameMax = 120
 
 // isWindowsDeviceName reports whether Windows reads name as a device: its stem
-// (up to the first dot, trailing spaces ignored) is CON, PRN, AUX, NUL, or COM
-// or LPT followed by 0-9 or a superscript 1-3, in any case.
+// (up to the first dot, trailing spaces ignored) is CON, PRN, AUX, NUL, CONIN$,
+// CONOUT$, or COM or
+// LPT followed by 0-9 or a superscript 1-3, in any case.
 func isWindowsDeviceName(name string) bool {
 	stem, _, _ := strings.Cut(name, ".")
 	stem = strings.ToUpper(strings.TrimRight(stem, " "))
 	switch stem {
-	case "CON", "PRN", "AUX", "NUL":
+	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
 		return true
 	}
 	if rest, ok := strings.CutPrefix(stem, "COM"); ok {

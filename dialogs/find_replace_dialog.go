@@ -268,7 +268,9 @@ func (d *FindReplaceDialog) optionsChanged() bool {
 	if d.target == nil || !d.target.HasSearch() || d.rescope {
 		return true
 	}
-	return d.target.SearchOpts() != d.compiled()
+	a, b := d.target.SearchOpts(), d.compiled()
+	a.Replace, b.Replace = "", ""
+	return a != b
 }
 
 // ensureSearch compiles the fields onto the editor only when they differ from
@@ -276,6 +278,10 @@ func (d *FindReplaceDialog) optionsChanged() bool {
 // Next would restart from the cursor instead of stepping on.
 func (d *FindReplaceDialog) ensureSearch() bool {
 	if !d.optionsChanged() {
+		// Replace is not part of what matches: pushing it alone keeps the
+		// current match, so Replace after editing "Replace with" replaces the
+		// selected hit instead of stepping past it.
+		d.target.SetReplacement(d.Fields().Replace)
 		return true
 	}
 	return d.applyOptions()

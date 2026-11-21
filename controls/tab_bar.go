@@ -87,7 +87,7 @@ func (t *TabBar) RightRect() core.Rect {
 	}
 	w := core.DisplayWidth(t.Right)
 	x := t.rect.Right() - w - 1
-	if x <= col {
+	if x < col {
 		return core.Rect{}
 	}
 	return core.Rect{X: x, Y: t.rect.Y, W: w, H: 1}

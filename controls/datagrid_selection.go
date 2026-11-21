@@ -145,6 +145,20 @@ func (g *DataGrid) markRow(row int) {
 	g.markFlips[row] = struct{}{}
 }
 
+// setMarkedRows installs rows as a Ctrl+click selection with an empty base run,
+// replacing any selection's marks; no rows leaves no marks (the cursor row is
+// the selection again). The caller has range-checked rows.
+func (g *DataGrid) setMarkedRows(rows []int) {
+	if len(rows) == 0 {
+		g.ClearMarkedRows()
+		return
+	}
+	g.markLo, g.markHi, g.markFlips, g.marking = 0, -1, make(map[int]struct{}, len(rows)), true
+	for _, r := range rows {
+		g.markFlips[r] = struct{}{}
+	}
+}
+
 // inMarkRun reports whether row is inside the base run of a discontiguous
 // selection — marked unless flipped.
 func (g *DataGrid) inMarkRun(row int) bool { return row >= g.markLo && row <= g.markHi }

@@ -73,3 +73,12 @@ func TestClassifyTextCell(t *testing.T) {
 		}
 	}
 }
+
+// A signed Inf or a malformed digit grouping is a name or a list, not a number.
+func TestNewTextCellKeyNotNumber(t *testing.T) {
+	for _, in := range []string{"-inf", "+Inf", "1,2,3", "1,5"} {
+		if k := NewTextCellKey(in); k.isNum {
+			t.Errorf("NewTextCellKey(%q) read as a number", in)
+		}
+	}
+}

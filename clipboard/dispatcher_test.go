@@ -264,3 +264,78 @@ func TestBracketedPasteIsOneEdit(t *testing.T) {
 		t.Error("a key after the paste ended was consumed")
 	}
 }
+
+// A Paste issued after a Copy reads only once that write has landed: with a
+// slow native tool the read used to overtake it and paste the old contents.
+func TestPasteWaitsForEarlierCopy(t *testing.T) {
+	h := newHarness()
+	h.active = &fakeTarget{}
+	tgt := h.active.(*fakeTarget)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var mu sync.Mutex
+	clip := "old"
+	h.d.NativeWrite = func(text string) bool {
+		close(entered)
+		<-release
+		mu.Lock()
+		clip = text
+		mu.Unlock()
+		return true
+	}
+	h.d.NativeRead = func() (string, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		return clip, true
+	}
+
+	h.d.Copy("new")
+	<-entered
+	h.d.Paste()
+	time.Sleep(20 * time.Millisecond)
+	h.mu.Lock()
+	n := len(h.posted)
+	h.mu.Unlock()
+	if n != 0 {
+		t.Fatal("Paste read the clipboard before the Copy finished writing")
+	}
+	close(release)
+	h.drain(t)
+	if !slices.Equal(tgt.pastes, []string{"new"}) {
+		t.Errorf("pastes = %q, want [new]", tgt.pastes)
+	}
+}
+
+// Two quick Copies then a Paste: the superseded one still counts as done, and
+// the paste gets the second.
+func TestPasteAfterSupersededCopy(t *testing.T) {
+	h := newHarness()
+	tgt := &fakeTarget{}
+	h.active = tgt
+	entered, release := make(chan struct{}), make(chan struct{})
+	var mu sync.Mutex
+	clip := "old"
+	h.d.NativeWrite = func(text string) bool {
+		if text == "A" {
+			close(entered)
+			<-release
+		}
+		mu.Lock()
+		clip = text
+		mu.Unlock()
+		return true
+	}
+	h.d.NativeRead = func() (string, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		return clip, true
+	}
+	h.d.Copy("A")
+	<-entered
+	h.d.Copy("B")
+	h.d.Paste()
+	close(release)
+	h.drain(t)
+	if !slices.Equal(tgt.pastes, []string{"B"}) {
+		t.Errorf("pastes = %q, want [B]", tgt.pastes)
+	}
+}

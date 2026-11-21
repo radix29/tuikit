@@ -36,7 +36,7 @@ const joinFloor = 0x300
 // printable-ASCII case inline: the editor runs it per character drawn and
 // wrapped.
 func GraphemeAt(line []rune, i int) (end, width int) {
-	if i >= 0 && LoneASCII(line, i) {
+	if i >= 0 && i < len(line) && LoneASCII(line, i) {
 		return i + 1, 1
 	}
 	return graphemeAtSlow(line, i)
@@ -44,7 +44,7 @@ func GraphemeAt(line []rune, i int) (end, width int) {
 
 // LoneASCII reports whether line[i] is printable ASCII, a one-column cluster on
 // its own, so a walk can take the common case inline and call GraphemeAt for the
-// rest.
+// rest. i must be in range (0 <= i < len(line)).
 func LoneASCII(line []rune, i int) bool {
 	r := line[i]
 	return r >= 0x20 && r < 0x7F && (i+1 == len(line) || line[i+1] < joinFloor)

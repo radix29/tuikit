@@ -195,8 +195,35 @@ func (f *InputField) Cut() string {
 	return text
 }
 
+// firstNonBlankLine returns the first line of text holding a non-whitespace
+// character, without its line break. A clipboard that opens with a blank line
+// (a multi-line cell, a selection dragged from the line above) would otherwise
+// paste its empty first line, i.e. nothing. A whitespace-only first line is
+// skipped when a later line has content ("  \n x" pastes " x": decided, the
+// rule is "skip lines with no content"). When no line has any, the first line
+// is returned as it is, so pasting a lone space or tab still works.
+func firstNonBlankLine(text string) string {
+	first := text
+	if nl := strings.IndexAny(text, "\r\n"); nl >= 0 {
+		first = text[:nl]
+	}
+	for text != "" {
+		line := text
+		rest := ""
+		if nl := strings.IndexAny(text, "\r\n"); nl >= 0 {
+			line, rest = text[:nl], text[nl+1:]
+		}
+		if strings.TrimSpace(line) != "" {
+			return line
+		}
+		text = rest
+	}
+	return first
+}
+
 // Paste inserts text at the cursor, replacing any selection. InputField is
-// single-line, so only the first line of text is used. A TAB becomes one space
+// single-line, so only the first non-blank line of text is used (leading blank
+// or whitespace-only lines are skipped). A TAB becomes one space
 // (what DrawTextLine shows for it) and every other control character is
 // dropped: typing cannot enter them, Draw skips them as zero-width, so kept
 // they rode along invisibly in the value — a grid row pasted into a server
@@ -206,9 +233,7 @@ func (f *InputField) Paste(text string) {
 	if f.disabled {
 		return
 	}
-	if nl := strings.IndexAny(text, "\r\n"); nl >= 0 {
-		text = text[:nl]
-	}
+	text = firstNonBlankLine(text)
 	text = strings.Map(func(r rune) rune {
 		switch {
 		case r == '\t':
@@ -414,12 +439,18 @@ func (f *InputField) HandleKey(ev *tcell.EventKey) bool {
 	case tcell.KeyLeft:
 		if ctrlHeld {
 			f.cursor = f.wordLeft()
+		} else if hadSelection && !shiftHeld {
+			// Plain Left collapses a selection to its start rather than stepping.
+			f.cursor, _ = f.selectionBounds()
 		} else if f.cursor > 0 {
 			f.cursor = core.PrevGrapheme(f.displayRunes(), f.cursor)
 		}
 	case tcell.KeyRight:
 		if ctrlHeld {
 			f.cursor = f.wordRight()
+		} else if hadSelection && !shiftHeld {
+			// Plain Right collapses a selection to its end rather than stepping.
+			_, f.cursor = f.selectionBounds()
 		} else if f.cursor < len(f.value) {
 			f.cursor = core.NextGrapheme(f.displayRunes(), f.cursor)
 		}
