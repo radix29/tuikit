@@ -50,6 +50,11 @@ func (s PermutedSource) RowKind(i int) RowKind {
 // now (nothing was sorted). When the cursor's row is not in newPerm the cursor
 // stays on its index.
 //
+// Ctrl+click marks follow their rows too, so a user who marks rows and sorts
+// to check them still copies those rows; a marked row missing from newPerm is
+// dropped. A Shift-extended block is collapsed: after a re-sort its rows are no
+// longer contiguous, and its column range is something marks cannot express.
+//
 // The host sets the indicator for the new order (SetSortIndicator) before or
 // after; this keeps the old one.
 func (g *DataGrid) SetSourceReordered(columns []string, rows RowSource, oldPerm, newPerm []int) {
@@ -63,10 +68,40 @@ func (g *DataGrid) SetSourceReordered(columns []string, rows RowSource, oldPerm,
 	case row >= 0 && row < len(oldPerm):
 		orig = oldPerm[row]
 	}
+	var marked []int // the marked rows, as indexes in the underlying order
+	if g.marking {
+		shown := g.rows.Len()
+		if oldPerm != nil {
+			shown = len(oldPerm)
+		}
+		for _, r := range g.SelectedRows() {
+			switch {
+			case r < 0 || r >= shown:
+			case oldPerm == nil:
+				marked = append(marked, r)
+			default:
+				marked = append(marked, oldPerm[r])
+			}
+		}
+	}
 	g.SetSourcePreservingView(columns, rows)
 	if i := slices.Index(newPerm, orig); i >= 0 {
 		g.SetSelectedCell(i, col)
 	}
+	if len(marked) == 0 {
+		return
+	}
+	at := make(map[int]int, len(newPerm)) // underlying row -> shown index
+	for i, r := range newPerm {
+		at[r] = i
+	}
+	rowsNow := make([]int, 0, len(marked))
+	for _, r := range marked {
+		if i, ok := at[r]; ok {
+			rowsNow = append(rowsNow, i)
+		}
+	}
+	g.setMarkedRows(rowsNow)
 }
 
 // SortMenuItems are a grid cell menu's keyboard route to a header click (an

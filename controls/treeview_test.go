@@ -81,6 +81,12 @@ func TestSetNodesKeepsSelectedIDWhenRowsInsertedAbove(t *testing.T) {
 		nodes = append(nodes, TreeNode{ID: TreeNodeID(100 + i), Label: "child"})
 	}
 	nodes = append(nodes, TreeNode{ID: 3, Label: "below"})
+	// Enough rows below that keeping the line leaves no blank rows; without them
+	// SetNodes rightly scrolls up to fill the view (see
+	// TestTreeViewCollapseNearBottomFillsView).
+	for i := range 10 {
+		nodes = append(nodes, TreeNode{ID: TreeNodeID(200 + i), Label: "after"})
+	}
 	tv.SetNodes(nodes)
 
 	if n := tv.SelectedNode(); n == nil || n.ID != 3 {
@@ -88,6 +94,47 @@ func TestSetNodesKeepsSelectedIDWhenRowsInsertedAbove(t *testing.T) {
 	}
 	if got := tv.sel - tv.scroll; got != line {
 		t.Errorf("selected row moved from screen line %d to %d", line, got)
+	}
+}
+
+// TestTreeViewCollapseNearBottomFillsView pins that keeping the selection's
+// screen line yields when it would leave blank rows. Collapsing an expanded node
+// near the bottom removes the rows below it; SetNodes kept the old offset, so the
+// bottom of the pane went blank while the nodes above stayed scrolled out of view.
+func TestTreeViewCollapseNearBottomFillsView(t *testing.T) {
+	tv := NewTreeView()
+	tv.SetBounds(0, 0, 40, 10) // inner.H = 8
+	const h = 8
+
+	var top []TreeNode
+	for i := range 20 {
+		top = append(top, TreeNode{ID: TreeNodeID(i + 1), Label: fmt.Sprintf("n%d", i)})
+	}
+	tables := TreeNode{ID: 100, Label: "Tables", HasKids: true, Expanded: true}
+	views := TreeNode{ID: 101, Label: "Views"}
+	expanded := append(append([]TreeNode{}, top...), tables)
+	for i := range 30 {
+		expanded = append(expanded, TreeNode{ID: TreeNodeID(200 + i), Label: "t", Depth: 1})
+	}
+	expanded = append(expanded, views)
+	tv.SetNodes(expanded)
+
+	// Put Tables (index 20) on screen line 4.
+	tv.SelectID(100)
+	tv.scroll = 16
+
+	collapsed := append(append([]TreeNode{}, top...), tables, views)
+	collapsed[20].Expanded = false
+	tv.SetNodes(collapsed)
+
+	if want := len(collapsed) - h; tv.scroll != want {
+		t.Errorf("scroll after collapse = %d, want %d (len %d, view %d): rows below the last node are blank", tv.scroll, want, len(collapsed), h)
+	}
+	if n := tv.SelectedNode(); n == nil || n.ID != 100 {
+		t.Fatalf("selected node after collapse = %+v, want Tables", n)
+	}
+	if tv.sel < tv.scroll || tv.sel >= tv.scroll+h {
+		t.Errorf("selection %d is off screen (scroll %d, view %d)", tv.sel, tv.scroll, h)
 	}
 }
 
@@ -649,15 +696,20 @@ func TestTreeViewRefreshBetweenClicksDoesNotPairDifferentNodes(t *testing.T) {
 // OnSelect, an expand) still gets the double-click when the same node is
 // pressed again; resetting the tracker in SetNodes, as ListBox.SetItems does,
 // would lose it. SetNodes keeps the selected node on its screen line, so the
-// second press lands on the same row.
+// second press lands on the same row. The rows below fill the view, so keeping
+// the line leaves no blank rows (which SetNodes would scroll up to fill).
 func TestTreeViewDoubleClickSurvivesRefreshFromFirstPress(t *testing.T) {
 	tv := NewTreeView()
 	tv.SetBounds(0, 0, 40, 10)
-	tv.SetNodes([]TreeNode{{ID: 1, Label: "one"}, {ID: 2, Label: "two"}})
+	var below []TreeNode
+	for i := range 10 {
+		below = append(below, TreeNode{ID: TreeNodeID(10 + i), Label: "below"})
+	}
+	tv.SetNodes(append([]TreeNode{{ID: 1, Label: "one"}, {ID: 2, Label: "two"}}, below...))
 	var fired []TreeNodeID
 	tv.OnActivate = func(id TreeNodeID) bool { fired = append(fired, id); return true }
 	tv.OnSelect = func(TreeNodeID) {
-		tv.SetNodes([]TreeNode{{ID: 0, Label: "new"}, {ID: 1, Label: "one"}, {ID: 2, Label: "two"}})
+		tv.SetNodes(append([]TreeNode{{ID: 0, Label: "new"}, {ID: 1, Label: "one"}, {ID: 2, Label: "two"}}, below...))
 	}
 
 	clickRow(tv, 6, 2) // node 2; the rebuild scrolls by one to keep it on row 2
