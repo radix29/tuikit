@@ -281,3 +281,48 @@ func refClusterAtColumn(line []rune, col int) (int, int) {
 	}
 	return len(line) + (col - c), col
 }
+
+func TestGraphemeAtPastEnd(t *testing.T) {
+	for _, line := range [][]rune{nil, []rune("abc"), []rune("éx́")} {
+		n := len(line)
+		for _, i := range []int{n, n + 1, n + 5} {
+			if end, w := GraphemeAt(line, i); end != i || w != 0 {
+				t.Errorf("GraphemeAt(%q,%d) = (%d,%d), want (%d,0)", string(line), i, end, w, i)
+			}
+		}
+		if n > 0 {
+			if end, w := GraphemeAt(line, -1); end < 1 || w < 0 {
+				t.Errorf("GraphemeAt(%q,-1) = (%d,%d)", string(line), end, w)
+			}
+		}
+	}
+}
+
+// TestGraphemeAtWalkProperty: a walk from 0 reaches len(line) and its widths
+// sum to RunesWidth, over random lines mixing ASCII, combining marks and wide runes.
+func TestGraphemeAtWalkProperty(t *testing.T) {
+	pool := []rune("ab c\t~́̀‍中文\U0001F600é가กำ")
+	seed := uint64(1)
+	next := func() int {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		return int(seed >> 33)
+	}
+	for range 20000 {
+		line := make([]rune, next()%12)
+		for k := range line {
+			line[k] = pool[next()%len(pool)]
+		}
+		sum := 0
+		for i := 0; i < len(line); {
+			end, w := GraphemeAt(line, i)
+			if end <= i {
+				t.Fatalf("no progress on %q at %d", string(line), i)
+			}
+			sum += w
+			i = end
+		}
+		if got := RunesWidth(line); got != sum {
+			t.Fatalf("%q: RunesWidth %d, walk sum %d", string(line), got, sum)
+		}
+	}
+}
