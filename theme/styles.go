@@ -76,6 +76,12 @@ func StyleTreeCurrent() tcell.Style {
 	return On(active.PanelBg, active.TreeCurrentText).Bold(true)
 }
 
+// StyleTreeCurrentSelected keeps a current tree row distinct when selected,
+// using the palette's readable foreground on its selection ground.
+func StyleTreeCurrentSelected() tcell.Style {
+	return On(active.TreeCurrentSelectedBg, active.TreeCurrentSelectedText).Bold(true)
+}
+
 // StyleMenuSelected is the highlighted row of a list on a MenuBar ground (menu,
 // dropdown list, panel switcher). Not StyleSelected: Midnight Commander's
 // selection is the same cyan as its menus, so the row would vanish.

@@ -1218,10 +1218,11 @@ func TestTreeViewPageKeysMoveOneRowInTinyPane(t *testing.T) {
 	}
 }
 
-// TestTreeViewEmphasisDrawsCurrentStyle: an Emphasis row is drawn in
-// StyleTreeCurrent (bold, TreeCurrentText) and wins over Dim; selected, it
-// keeps the selection colors and stays bold.
+// TestTreeViewEmphasisDrawsCurrentStyle checks the current row's normal and
+// selected styles, including a live palette switch and ordinary selections.
 func TestTreeViewEmphasisDrawsCurrentStyle(t *testing.T) {
+	saved := *theme.Active()
+	defer theme.SetPalette(saved)
 	tv := NewTreeView()
 	tv.SetBounds(0, 0, 40, 10)
 	tv.SetNodes([]TreeNode{
@@ -1230,8 +1231,6 @@ func TestTreeViewEmphasisDrawsCurrentStyle(t *testing.T) {
 		{ID: 3, Label: "plain"},
 	})
 	s := tuikittest.NewScreen(40, 10)
-	tv.Draw(s)
-	p := theme.Active()
 	styleOf := func(label string) tcell.Style {
 		x, y, ok := s.Find(label)
 		if !ok {
@@ -1239,15 +1238,32 @@ func TestTreeViewEmphasisDrawsCurrentStyle(t *testing.T) {
 		}
 		return s.StyleAt(x, y)
 	}
-	if st := styleOf("current"); !st.HasBold() || st.GetForeground() != p.TreeCurrentText {
-		t.Fatal("an Emphasis row is not in StyleTreeCurrent")
-	}
-	if styleOf("plain").HasBold() {
-		t.Fatal("a plain row is bold")
-	}
-	tv.SelectID(2)
-	tv.Draw(s)
-	if st, want := styleOf("current"), theme.StyleSelected(); !st.HasBold() || st.GetForeground() != want.GetForeground() || st.GetBackground() != want.GetBackground() {
-		t.Fatal("a selected Emphasis row lost its bold or the selection colors")
+	for name, p := range map[string]theme.Palette{
+		"Default": theme.Default, "Light": theme.Light, "MC": theme.MC, "MCRetro": theme.MCRetro,
+	} {
+		t.Run(name, func(t *testing.T) {
+			theme.SetPalette(p)
+			tv.SelectID(1)
+			tv.Draw(s)
+			if st := styleOf("current"); !st.HasBold() || st.GetForeground() != p.TreeCurrentText || st.GetBackground() != p.PanelBg {
+				t.Fatal("an Emphasis row is not in its current-row style")
+			}
+			if styleOf("plain").HasBold() {
+				t.Fatal("a plain row is bold")
+			}
+			tv.SelectID(2)
+			tv.Draw(s)
+			if st := styleOf("current"); !st.HasBold() || st.GetForeground() != p.TreeCurrentSelectedText || st.GetBackground() != p.TreeCurrentSelectedBg {
+				t.Fatal("a selected Emphasis row lost its current selection style")
+			}
+			tv.SelectID(3)
+			tv.Draw(s)
+			if st := styleOf("plain"); st.HasBold() || st.GetForeground() != p.SelectedText || st.GetBackground() != p.TreeSelected {
+				t.Fatal("an ordinary selection acquired the current-row style")
+			}
+			if st := styleOf("current"); !st.HasBold() || st.GetForeground() != p.TreeCurrentText || st.GetBackground() != p.PanelBg {
+				t.Fatal("deselecting a current row did not restore its normal style")
+			}
+		})
 	}
 }

@@ -35,6 +35,11 @@ type Palette struct {
 	// 220-gray rows barely stood out, while Light and the mc themes keep their
 	// TextHighlight.
 	TreeCurrentText tcell.Color
+	// TreeCurrentSelectedBg and TreeCurrentSelectedText are the current row's
+	// selection pair: yellow stays visible in Default, while the mc themes
+	// keep their readable black on cyan.
+	TreeCurrentSelectedBg   tcell.Color
+	TreeCurrentSelectedText tcell.Color
 
 	// Menu
 	MenuSelected tcell.Color
@@ -179,6 +184,9 @@ var Default = Palette{
 	TreeHover:    tcell.NewRGBColor(62, 62, 64),
 	// Bright yellow: the ChartHeading teal did not stand out enough.
 	TreeCurrentText: tcell.NewRGBColor(255, 255, 0),
+	// Yellow needs a slightly darker blue than ordinary white selection text.
+	TreeCurrentSelectedBg:   tcell.NewRGBColor(0, 114, 191),
+	TreeCurrentSelectedText: tcell.NewRGBColor(255, 255, 0),
 
 	MenuSelected:      tcell.NewRGBColor(0, 122, 204),
 	MenuHover:         tcell.NewRGBColor(62, 62, 64),
@@ -349,9 +357,11 @@ func mcSkin(c mcColors) Palette {
 		TextDisabled:  c.Gray,
 		SelectedText:  c.Black,
 
-		TreeSelected:    c.Cyan,
-		TreeHover:       c.PanelShade,
-		TreeCurrentText: c.White,
+		TreeSelected:            c.Cyan,
+		TreeHover:               c.PanelShade,
+		TreeCurrentText:         c.White,
+		TreeCurrentSelectedBg:   c.Cyan,
+		TreeCurrentSelectedText: c.Black,
 
 		MenuSelected:      c.Black,
 		MenuHover:         c.Black,
@@ -449,9 +459,11 @@ var Light = Palette{
 	TextDisabled:  tcell.NewRGBColor(160, 160, 160),
 	SelectedText:  tcell.NewRGBColor(255, 255, 255),
 
-	TreeSelected:    tcell.NewRGBColor(0, 122, 204),
-	TreeHover:       tcell.NewRGBColor(220, 230, 244),
-	TreeCurrentText: tcell.NewRGBColor(0, 0, 0),
+	TreeSelected:            tcell.NewRGBColor(0, 122, 204),
+	TreeHover:               tcell.NewRGBColor(220, 230, 244),
+	TreeCurrentText:         tcell.NewRGBColor(0, 0, 0),
+	TreeCurrentSelectedBg:   tcell.NewRGBColor(0, 122, 204),
+	TreeCurrentSelectedText: tcell.NewRGBColor(0, 0, 0),
 
 	MenuSelected:      tcell.NewRGBColor(0, 122, 204),
 	MenuHover:         tcell.NewRGBColor(220, 230, 244),
